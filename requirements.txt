@@ -1,0 +1,13 @@
+# Acquisition des données (Partie 1)
+praw
+xmltodict
+
+# Manipulation des données et calcul (Parties 1 et 2)
+pandas
+numpy
+scipy
+
+# Interface et progression (Partie 3)
+tqdm
+ipywidgets
+notebook

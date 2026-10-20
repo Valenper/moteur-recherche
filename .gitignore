@@ -1,0 +1,19 @@
+# --- Secrets : NE JAMAIS publier ---
+config.py
+.env
+
+# --- Environnement virtuel (se recrée avec requirements.txt) ---
+.venv/
+venv/
+
+# --- Fichiers générés automatiquement par Python ---
+__pycache__/
+*.pyc
+
+# --- Points de sauvegarde des notebooks Jupyter ---
+.ipynb_checkpoints/
+
+# --- Fichiers système / éditeur ---
+.DS_Store
+Thumbs.db
+.vscode/
