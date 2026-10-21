@@ -1,17 +1,18 @@
-"""Projet « Moteur de recherche » — Partie 1 : acquisition des données.
+"""Projet « Moteur de recherche » — Partie 1 : acquisition et sauvegarde des données.
 
-Questions 1.1 et 1.2 : récupérer des textes sur la thématique « FIFA World Cup »
-depuis Reddit (librairie praw) et Arxiv (librairies urllib + xmltodict),
-puis les ranger dans une liste `docs`.
+- Questions 1.1 et 1.2 : récupérer des textes sur la thématique « FIFA World Cup »
+  depuis Reddit (librairie praw) et Arxiv (librairies urllib + xmltodict).
+- Questions 2.1 à 2.3 : ranger ces textes dans un DataFrame pandas, le sauvegarder
+  en CSV (séparateur tabulation) et le recharger sans réinterroger les API.
 """
 
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
+import pandas as pd
 import praw
 import xmltodict
-
-from config import REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT
 
 # --- Paramètres de la thématique ------------------------------------------
 SUBREDDIT = "worldcup"                                # subreddit interrogé
@@ -19,12 +20,22 @@ SUBREDDIT = "worldcup"                                # subreddit interrogé
 REQUETE_ARXIV = '(all:"world cup" OR all:soccer) ANDNOT all:robot ANDNOT all:robocup'
 NB_DOCS = 100                                         # documents par source
 
+# --- Fichier de sauvegarde -------------------------------------------------
+# Path construit le chemin avec le bon séparateur selon l'OS (\ ou /) :
+# le programme reste multiplateforme, comme l'exigent les consignes.
+CHEMIN_CSV = Path("data") / "corpus.csv"
+
 
 # ==========================================================================
 # 1.1 — Reddit
 # ==========================================================================
 def recuperer_reddit(nb_docs: int) -> list[str]:
     """Renvoie la liste des textes des posts Reddit (titre + contenu)."""
+    # Import placé ici : config.py n'est nécessaire QUE pour télécharger.
+    # Quelqu'un qui clone le dépôt (sans config.py) peut donc lancer le
+    # programme à partir du CSV fourni.
+    from config import REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT
+
     # Connexion à l'API (en lecture seule : pas besoin de compte utilisateur)
     reddit = praw.Reddit(
         client_id=REDDIT_CLIENT_ID,
@@ -56,7 +67,7 @@ def recuperer_reddit(nb_docs: int) -> list[str]:
 # ==========================================================================
 def recuperer_arxiv(nb_docs: int) -> list[str]:
     """Renvoie la liste des textes des articles Arxiv (titre + résumé)."""
-    # Construction de l'URL : urlencode gère les espaces et les guillemets
+    # Construction de l'URL : urlencode gère les espaces, guillemets, parenthèses
     parametres = urllib.parse.urlencode({
         "search_query": REQUETE_ARXIV,
         "start": 0,
@@ -88,18 +99,59 @@ def recuperer_arxiv(nb_docs: int) -> list[str]:
 
 
 # ==========================================================================
+# 2.1 — Création du DataFrame
+# ==========================================================================
+def creer_dataframe(textes_reddit: list[str], textes_arxiv: list[str]) -> pd.DataFrame:
+    """Range les textes dans un tableau à 3 colonnes : id, texte, origine."""
+    textes = textes_reddit + textes_arxiv
+    origines = ["reddit"] * len(textes_reddit) + ["arxiv"] * len(textes_arxiv)
+
+    return pd.DataFrame({
+        "id": range(len(textes)),   # identifiant unique : 0, 1, 2, ...
+        "texte": textes,
+        "origine": origines,
+    })
+
+
+# ==========================================================================
+# 2.2 — Sauvegarde sur le disque
+# ==========================================================================
+def sauvegarder(df: pd.DataFrame, chemin: Path) -> None:
+    """Enregistre le tableau en CSV, avec la tabulation comme séparateur."""
+    chemin.parent.mkdir(exist_ok=True)       # crée le dossier data/ si besoin
+    # index=False : on n'écrit pas la numérotation interne de pandas
+    # (on a déjà notre propre colonne id)
+    df.to_csv(chemin, sep="\t", index=False, encoding="utf-8")
+
+
+# ==========================================================================
+# 2.3 — Rechargement depuis le disque
+# ==========================================================================
+def charger(chemin: Path) -> pd.DataFrame:
+    """Relit le tableau sauvegardé, sans interroger les API."""
+    return pd.read_csv(chemin, sep="\t", encoding="utf-8")
+
+
+# ==========================================================================
 # Programme principal
 # ==========================================================================
 if __name__ == "__main__":
-    textes_reddit = recuperer_reddit(NB_DOCS)
-    textes_arxiv = recuperer_arxiv(NB_DOCS)
+    if CHEMIN_CSV.exists():
+        # Le fichier existe déjà : on recharge (rapide, hors ligne)
+        print(f"Chargement du corpus depuis {CHEMIN_CSV}")
+        df = charger(CHEMIN_CSV)
+    else:
+        # Premier lancement : on interroge les API puis on sauvegarde
+        print("Aucune sauvegarde trouvée : téléchargement depuis les API...")
+        textes_reddit = recuperer_reddit(NB_DOCS)
+        textes_arxiv = recuperer_arxiv(NB_DOCS)
+        df = creer_dataframe(textes_reddit, textes_arxiv)
+        sauvegarder(df, CHEMIN_CSV)
+        print(f"Corpus sauvegardé dans {CHEMIN_CSV}")
 
-    docs = textes_reddit + textes_arxiv   # la liste demandée par l'énoncé
+    docs = df["texte"].tolist()   # la liste demandée en Partie 1
 
-    print(f"Posts Reddit récupérés    : {len(textes_reddit)}")
-    print(f"Articles Arxiv récupérés  : {len(textes_arxiv)}")
-    print(f"Total dans docs           : {len(docs)}")
-
-    # Aperçu : le premier document de chaque source (200 premiers caractères)
-    print("\n--- Exemple Reddit ---\n", textes_reddit[0][:200])
-    print("\n--- Exemple Arxiv ---\n", textes_arxiv[0][:200])
+    # Aperçu du tableau et répartition par source
+    print(df.head())
+    print(df["origine"].value_counts())
+    print(f"Total dans docs : {len(docs)}")
