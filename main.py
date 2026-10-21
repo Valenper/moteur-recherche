@@ -15,7 +15,8 @@ from config import REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT
 
 # --- Paramètres de la thématique ------------------------------------------
 SUBREDDIT = "worldcup"                                # subreddit interrogé
-REQUETE_ARXIV = 'all:"world cup" OR all:soccer'       # requête Arxiv
+# On exclut les articles sur le football de robots (RoboCup), hors sujet
+REQUETE_ARXIV = '(all:"world cup" OR all:soccer) ANDNOT all:robot ANDNOT all:robocup'
 NB_DOCS = 100                                         # documents par source
 
 
