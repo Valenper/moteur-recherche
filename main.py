@@ -4,6 +4,8 @@
   depuis Reddit (librairie praw) et Arxiv (librairies urllib + xmltodict).
 - Questions 2.1 à 2.3 : ranger ces textes dans un DataFrame pandas, le sauvegarder
   en CSV (séparateur tabulation) et le recharger sans réinterroger les API.
+- Questions 3.1 à 3.4 : premières manipulations (taille, mots, phrases,
+  filtrage des documents trop courts, concaténation de tous les textes).
 """
 
 import urllib.parse
@@ -133,6 +135,30 @@ def charger(chemin: Path) -> pd.DataFrame:
 
 
 # ==========================================================================
+# 3.2 — Nombre de mots et de phrases
+# ==========================================================================
+def compter_mots(texte: str) -> int:
+    """Nombre de mots : on découpe sur les espaces."""
+    # split() sans argument découpe sur tout espace (y compris plusieurs
+    # espaces à la suite), ce qui évite de compter des « mots vides »
+    return len(texte.split())
+
+
+def compter_phrases(texte: str) -> int:
+    """Nombre de phrases : on découpe sur les points."""
+    # "A. B." donne ["A", " B", ""] : on ne garde que les morceaux non vides
+    return len([morceau for morceau in texte.split(".") if morceau.strip()])
+
+
+# ==========================================================================
+# 3.3 — Suppression des documents trop petits
+# ==========================================================================
+def filtrer_courts(df: pd.DataFrame, taille_min: int = 100) -> pd.DataFrame:
+    """Renvoie le tableau sans les documents de moins de taille_min caractères."""
+    return df[df["texte"].str.len() >= taille_min]
+
+
+# ==========================================================================
 # Programme principal
 # ==========================================================================
 if __name__ == "__main__":
@@ -149,9 +175,25 @@ if __name__ == "__main__":
         sauvegarder(df, CHEMIN_CSV)
         print(f"Corpus sauvegardé dans {CHEMIN_CSV}")
 
-    docs = df["texte"].tolist()   # la liste demandée en Partie 1
+    # --- 3.1 : taille du corpus -------------------------------------------
+    print(f"\nTaille du corpus : {len(df)} documents")
+    print(df["origine"].value_counts().to_string())
 
-    # Aperçu du tableau et répartition par source
-    print(df.head())
-    print(df["origine"].value_counts())
-    print(f"Total dans docs : {len(docs)}")
+    # --- 3.2 : nombre de mots et de phrases par document ------------------
+    # apply() appelle la fonction sur chaque texte de la colonne
+    df["nb_mots"] = df["texte"].apply(compter_mots)
+    df["nb_phrases"] = df["texte"].apply(compter_phrases)
+    print("\nMots et phrases par document :")
+    print(df[["id", "origine", "nb_mots", "nb_phrases"]].to_string(index=False))
+
+    # --- 3.3 : suppression des documents de moins de 100 caractères -------
+    taille_avant = len(df)
+    df = filtrer_courts(df, 100)
+    print(f"\nDocuments supprimés (< 100 caractères) : {taille_avant - len(df)}")
+    print(f"Taille du corpus après filtrage : {len(df)} documents")
+    print(df["origine"].value_counts().to_string())
+
+    # --- 3.4 : une unique chaîne contenant tous les documents -------------
+    docs = df["texte"].tolist()            # la liste demandée en Partie 1
+    texte_complet = " ".join(docs)         # join colle les textes avec un espace
+    print(f"\nLongueur de la chaîne complète : {len(texte_complet)} caractères")
