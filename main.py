@@ -1,20 +1,24 @@
-"""Projet « Moteur de recherche » — Partie 1 : acquisition et sauvegarde des données.
+"""Projet « Moteur de recherche » — Partie 1 : acquisition et premières manipulations.
 
-- Questions 1.1 et 1.2 : récupérer des textes sur la thématique « FIFA World Cup »
+- Questions 1.1 et 1.2 : récupérer des documents sur la thématique « FIFA World Cup »
   depuis Reddit (librairie praw) et Arxiv (librairies urllib + xmltodict).
-- Questions 2.1 à 2.3 : ranger ces textes dans un DataFrame pandas, le sauvegarder
+- Questions 2.1 à 2.3 : ranger ces documents dans un DataFrame pandas, le sauvegarder
   en CSV (séparateur tabulation) et le recharger sans réinterroger les API.
 - Questions 3.1 à 3.4 : premières manipulations (taille, mots, phrases,
   filtrage des documents trop courts, concaténation de tous les textes).
+- Question 4.3 : instanciation d'objets Document rangés dans un dictionnaire.
 """
 
 import urllib.parse
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
 import praw
 import xmltodict
+
+from Document import Document
 
 # --- Paramètres de la thématique ------------------------------------------
 SUBREDDIT = "worldcup"                                # subreddit interrogé
@@ -28,11 +32,17 @@ NB_DOCS = 100                                         # documents par source
 CHEMIN_CSV = Path("data") / "corpus.csv"
 
 
+def nettoyer_espaces(chaine: str) -> str:
+    """Remplace sauts de ligne, tabulations et espaces multiples par un espace."""
+    # split() découpe sur TOUT type d'espace ; join recolle avec un espace simple
+    return " ".join(chaine.split())
+
+
 # ==========================================================================
 # 1.1 — Reddit
 # ==========================================================================
-def recuperer_reddit(nb_docs: int) -> list[str]:
-    """Renvoie la liste des textes des posts Reddit (titre + contenu)."""
+def recuperer_reddit(nb_docs: int) -> list[dict]:
+    """Renvoie la liste des posts Reddit, chacun sous forme de dictionnaire."""
     # Import placé ici : config.py n'est nécessaire QUE pour télécharger.
     # Quelqu'un qui clone le dépôt (sans config.py) peut donc lancer le
     # programme à partir du CSV fourni.
@@ -48,7 +58,7 @@ def recuperer_reddit(nb_docs: int) -> list[str]:
     # Les posts les plus populaires de l'année : couvre la Coupe du monde 2026
     posts = reddit.subreddit(SUBREDDIT).top(time_filter="year", limit=nb_docs)
 
-    textes = []
+    resultats = []
     for i, post in enumerate(posts):
         if i == 0:
             # Question « quels sont les champs disponibles ? » :
@@ -56,19 +66,29 @@ def recuperer_reddit(nb_docs: int) -> list[str]:
             print("Champs disponibles (Reddit) :")
             print(sorted(vars(post).keys()), "\n")
 
-        # Le titre est toujours présent ; selftext est le corps du post
-        # (vide quand le post est une simple image ou un lien)
-        texte = post.title + ". " + post.selftext
-        textes.append(texte.replace("\n", " "))   # suppression des sauts de ligne
+        titre = nettoyer_espaces(post.title)
+        resultats.append({
+            "titre": titre,
+            # author vaut None quand le compte a été supprimé
+            "auteur": str(post.author) if post.author else "[supprimé]",
+            # created_utc = nombre de secondes depuis le 01/01/1970 (timestamp)
+            "date": datetime.fromtimestamp(post.created_utc, tz=timezone.utc).isoformat(),
+            # permalink = adresse de la discussion sur Reddit
+            "url": "https://www.reddit.com" + post.permalink,
+            # Texte = titre + corps (selftext, vide pour une image ou un lien)
+            "texte": nettoyer_espaces(titre + ". " + post.selftext),
+            # Spécifique à Reddit, servira en Partie 7
+            "nb_commentaires": post.num_comments,
+        })
 
-    return textes
+    return resultats
 
 
 # ==========================================================================
 # 1.2 — Arxiv
 # ==========================================================================
-def recuperer_arxiv(nb_docs: int) -> list[str]:
-    """Renvoie la liste des textes des articles Arxiv (titre + résumé)."""
+def recuperer_arxiv(nb_docs: int) -> list[dict]:
+    """Renvoie la liste des articles Arxiv, chacun sous forme de dictionnaire."""
     # Construction de l'URL : urlencode gère les espaces, guillemets, parenthèses
     parametres = urllib.parse.urlencode({
         "search_query": REQUETE_ARXIV,
@@ -87,32 +107,48 @@ def recuperer_arxiv(nb_docs: int) -> list[str]:
     if isinstance(entrees, dict):                # un seul résultat : pas de liste
         entrees = [entrees]
 
-    textes = []
+    resultats = []
     for i, entree in enumerate(entrees):
         if i == 0:
             print("Champs disponibles (Arxiv) :")
             print(list(entree.keys()), "\n")
 
-        # Le contenu textuel d'un article est son résumé (champ « summary »)
-        texte = entree["title"] + ". " + entree["summary"]
-        textes.append(texte.replace("\n", " "))
+        # Même piège que pour les entrées : un seul auteur = un dict, pas une liste
+        auteurs = entree["author"]
+        if isinstance(auteurs, dict):
+            auteurs = [auteurs]
+        noms = [auteur["name"] for auteur in auteurs]
 
-    return textes
+        titre = nettoyer_espaces(entree["title"])
+        resultats.append({
+            "titre": titre,
+            "auteur": noms[0],                    # premier auteur
+            # published est au format ISO : "2024-05-12T10:00:00Z"
+            "date": datetime.fromisoformat(entree["published"]).isoformat(),
+            "url": entree["id"],                  # adresse de l'article
+            # Le contenu textuel d'un article est son résumé (champ « summary »)
+            "texte": nettoyer_espaces(titre + ". " + entree["summary"]),
+            # Spécifique à Arxiv, servira en Partie 7
+            "coauteurs": ", ".join(noms[1:]),
+        })
+
+    return resultats
 
 
 # ==========================================================================
 # 2.1 — Création du DataFrame
 # ==========================================================================
-def creer_dataframe(textes_reddit: list[str], textes_arxiv: list[str]) -> pd.DataFrame:
-    """Range les textes dans un tableau à 3 colonnes : id, texte, origine."""
-    textes = textes_reddit + textes_arxiv
-    origines = ["reddit"] * len(textes_reddit) + ["arxiv"] * len(textes_arxiv)
+def creer_dataframe(docs_reddit: list[dict], docs_arxiv: list[dict]) -> pd.DataFrame:
+    """Range les documents dans un tableau : une ligne par document."""
+    for doc in docs_reddit:
+        doc["origine"] = "reddit"
+    for doc in docs_arxiv:
+        doc["origine"] = "arxiv"
 
-    return pd.DataFrame({
-        "id": range(len(textes)),   # identifiant unique : 0, 1, 2, ...
-        "texte": textes,
-        "origine": origines,
-    })
+    # Une liste de dictionnaires devient un tableau : les clés -> les colonnes
+    df = pd.DataFrame(docs_reddit + docs_arxiv)
+    df.insert(0, "id", range(len(df)))   # identifiant unique en 1re colonne
+    return df
 
 
 # ==========================================================================
@@ -159,6 +195,26 @@ def filtrer_courts(df: pd.DataFrame, taille_min: int = 100) -> pd.DataFrame:
 
 
 # ==========================================================================
+# 4.3 — Instanciation des objets Document
+# ==========================================================================
+def creer_documents(df: pd.DataFrame) -> dict[int, Document]:
+    """Crée un Document par ligne du tableau, indexé par un identifiant unique."""
+    documents = {}
+    # enumerate génère les identifiants séquentiellement : 1, 2, 3, ...
+    # itertuples parcourt le tableau ligne par ligne (ligne.titre, ligne.date...)
+    for id_doc, ligne in enumerate(df.itertuples(), start=1):
+        documents[id_doc] = Document(
+            titre=ligne.titre,
+            auteur=ligne.auteur,
+            # Dans le CSV, la date est du texte : on la reconvertit en datetime
+            date=datetime.fromisoformat(ligne.date),
+            url=ligne.url,
+            texte=ligne.texte,
+        )
+    return documents
+
+
+# ==========================================================================
 # Programme principal
 # ==========================================================================
 if __name__ == "__main__":
@@ -169,9 +225,9 @@ if __name__ == "__main__":
     else:
         # Premier lancement : on interroge les API puis on sauvegarde
         print("Aucune sauvegarde trouvée : téléchargement depuis les API...")
-        textes_reddit = recuperer_reddit(NB_DOCS)
-        textes_arxiv = recuperer_arxiv(NB_DOCS)
-        df = creer_dataframe(textes_reddit, textes_arxiv)
+        docs_reddit = recuperer_reddit(NB_DOCS)
+        docs_arxiv = recuperer_arxiv(NB_DOCS)
+        df = creer_dataframe(docs_reddit, docs_arxiv)
         sauvegarder(df, CHEMIN_CSV)
         print(f"Corpus sauvegardé dans {CHEMIN_CSV}")
 
@@ -183,8 +239,10 @@ if __name__ == "__main__":
     # apply() appelle la fonction sur chaque texte de la colonne
     df["nb_mots"] = df["texte"].apply(compter_mots)
     df["nb_phrases"] = df["texte"].apply(compter_phrases)
-    print("\nMots et phrases par document :")
-    print(df[["id", "origine", "nb_mots", "nb_phrases"]].to_string(index=False))
+    print("\nMots et phrases (5 premiers documents) :")
+    print(df[["id", "origine", "nb_mots", "nb_phrases"]].head().to_string(index=False))
+    print("\nMoyennes par source :")
+    print(df.groupby("origine")[["nb_mots", "nb_phrases"]].mean().round(1))
 
     # --- 3.3 : suppression des documents de moins de 100 caractères -------
     taille_avant = len(df)
@@ -197,3 +255,14 @@ if __name__ == "__main__":
     docs = df["texte"].tolist()            # la liste demandée en Partie 1
     texte_complet = " ".join(docs)         # join colle les textes avec un espace
     print(f"\nLongueur de la chaîne complète : {len(texte_complet)} caractères")
+
+    # --- 4.3 : dictionnaire des objets Document ---------------------------
+    documents = creer_documents(df)
+    print(f"\nDictionnaire documents : {len(documents)} objets Document")
+
+    print("\n--- print(doc) appelle __str__ : titre seul ---")
+    for id_doc in list(documents)[:3]:
+        print(f"{id_doc} : {documents[id_doc]}")
+
+    print("\n--- afficher() : toutes les informations ---")
+    documents[1].afficher()
