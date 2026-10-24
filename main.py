@@ -7,6 +7,7 @@
 - Questions 3.1 à 3.4 : premières manipulations (taille, mots, phrases,
   filtrage des documents trop courts, concaténation de tous les textes).
 - Question 4.3 : instanciation d'objets Document rangés dans un dictionnaire.
+- Questions 5.3 et 5.4 : dictionnaire des auteurs et statistiques sur un auteur.
 """
 
 import urllib.parse
@@ -18,6 +19,7 @@ import pandas as pd
 import praw
 import xmltodict
 
+from Author import Author
 from Document import Document
 
 # --- Paramètres de la thématique ------------------------------------------
@@ -215,6 +217,34 @@ def creer_documents(df: pd.DataFrame) -> dict[int, Document]:
 
 
 # ==========================================================================
+# 5.3 — Dictionnaire des auteurs
+# ==========================================================================
+def creer_auteurs(documents: dict[int, Document]) -> dict[str, Author]:
+    """Regroupe les documents par auteur : {nom de l'auteur: Author}."""
+    authors = {}
+    for id_doc, doc in documents.items():
+        # Nouvel auteur : on crée son instance avant de lui ajouter le document
+        if doc.auteur not in authors:
+            authors[doc.auteur] = Author(doc.auteur)
+        authors[doc.auteur].add(id_doc, doc)
+    return authors
+
+
+# ==========================================================================
+# 5.4 — Statistiques sur un auteur
+# ==========================================================================
+def statistiques_auteur(authors: dict[str, Author], nom: str) -> None:
+    """Affiche le nombre de documents et leur taille moyenne pour un auteur."""
+    if nom not in authors:
+        print(f"Auteur « {nom} » introuvable dans le corpus.")
+        return
+    auteur = authors[nom]
+    print(f"Auteur                 : {auteur.name}")
+    print(f"Nombre de documents    : {auteur.nb_docs}")
+    print(f"Taille moyenne         : {auteur.taille_moyenne():.1f} mots")
+
+
+# ==========================================================================
 # Programme principal
 # ==========================================================================
 if __name__ == "__main__":
@@ -266,3 +296,18 @@ if __name__ == "__main__":
 
     print("\n--- afficher() : toutes les informations ---")
     documents[1].afficher()
+
+    # --- 5.3 : dictionnaire des auteurs -----------------------------------
+    authors = creer_auteurs(documents)
+    print(f"\nDictionnaire authors : {len(authors)} auteurs différents")
+
+    # Les 5 auteurs les plus productifs (tri sur l'attribut nb_docs)
+    print("Auteurs les plus productifs :")
+    plus_productifs = sorted(authors.values(), key=lambda a: a.nb_docs, reverse=True)
+    for auteur in plus_productifs[:5]:
+        print(f"  {auteur}")
+
+    # --- 5.4 : statistiques sur un auteur saisi par l'utilisateur ---------
+    nom = input("\nNom d'un auteur (Entrée pour passer) : ").strip()
+    if nom:
+        statistiques_auteur(authors, nom)
