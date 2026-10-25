@@ -24,9 +24,14 @@ from Document import Document
 
 # --- Paramètres de la thématique ------------------------------------------
 SUBREDDIT = "worldcup"                                # subreddit interrogé
-# On exclut les articles sur le football de robots (RoboCup), hors sujet
-REQUETE_ARXIV = '(all:"world cup" OR all:soccer) ANDNOT all:robot ANDNOT all:robocup'
+REQUETE_ARXIV = 'all:"world cup" OR all:soccer'       # requête Arxiv
 NB_DOCS = 100                                         # documents par source
+
+# Les articles sur le football de robots (RoboCup) sont hors sujet.
+# L'opérateur ANDNOT de l'API Arxiv ne les excluait pas : on les filtre
+# donc nous-mêmes en Python, en cherchant ces expressions dans le texte.
+MOTS_HORS_SUJET = ["robocup", "robot", "soccer simulation", "simulation 2d",
+                   "simulation league"]
 
 # --- Fichier de sauvegarde -------------------------------------------------
 # Path construit le chemin avec le bon séparateur selon l'OS (\ ou /) :
@@ -38,6 +43,13 @@ def nettoyer_espaces(chaine: str) -> str:
     """Remplace sauts de ligne, tabulations et espaces multiples par un espace."""
     # split() découpe sur TOUT type d'espace ; join recolle avec un espace simple
     return " ".join(chaine.split())
+
+
+def est_hors_sujet(texte: str) -> bool:
+    """True si le texte contient l'une des expressions de MOTS_HORS_SUJET."""
+    texte = texte.lower()     # comparaison insensible aux majuscules
+    # any() renvoie True dès qu'une expression est trouvée dans le texte
+    return any(expression in texte for expression in MOTS_HORS_SUJET)
 
 
 # ==========================================================================
@@ -91,11 +103,13 @@ def recuperer_reddit(nb_docs: int) -> list[dict]:
 # ==========================================================================
 def recuperer_arxiv(nb_docs: int) -> list[dict]:
     """Renvoie la liste des articles Arxiv, chacun sous forme de dictionnaire."""
-    # Construction de l'URL : urlencode gère les espaces, guillemets, parenthèses
+    # Construction de l'URL : urlencode gère les espaces et les guillemets.
+    # On demande 3 fois plus d'articles que nécessaire, car une partie
+    # sera écartée par le filtre hors sujet (RoboCup).
     parametres = urllib.parse.urlencode({
         "search_query": REQUETE_ARXIV,
         "start": 0,
-        "max_results": nb_docs,
+        "max_results": 3 * nb_docs,
     })
     url = "https://export.arxiv.org/api/query?" + parametres
 
@@ -110,10 +124,20 @@ def recuperer_arxiv(nb_docs: int) -> list[dict]:
         entrees = [entrees]
 
     resultats = []
+    nb_exclus = 0
     for i, entree in enumerate(entrees):
         if i == 0:
             print("Champs disponibles (Arxiv) :")
             print(list(entree.keys()), "\n")
+
+        # On s'arrête dès qu'on a assez d'articles
+        if len(resultats) == nb_docs:
+            break
+
+        # Article hors sujet (RoboCup) : on le saute et on passe au suivant
+        if est_hors_sujet(entree["title"] + " " + entree["summary"]):
+            nb_exclus += 1
+            continue
 
         # Même piège que pour les entrées : un seul auteur = un dict, pas une liste
         auteurs = entree["author"]
@@ -134,6 +158,7 @@ def recuperer_arxiv(nb_docs: int) -> list[dict]:
             "coauteurs": ", ".join(noms[1:]),
         })
 
+    print(f"Articles Arxiv exclus (hors sujet) : {nb_exclus}")
     return resultats
 
 
