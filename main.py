@@ -6,8 +6,8 @@
   en CSV (séparateur tabulation) et le recharger sans réinterroger les API.
 - Questions 3.1 à 3.4 : premières manipulations (taille, mots, phrases,
   filtrage des documents trop courts, concaténation de tous les textes).
-- Question 4.3 : instanciation d'objets Document rangés dans un dictionnaire.
-- Questions 5.3 et 5.4 : dictionnaire des auteurs et statistiques sur un auteur.
+- Parties 4 à 6 : les documents sont rangés dans un objet Corpus, qui gère
+  aussi les auteurs, les affichages triés et la sauvegarde / le chargement.
 """
 
 import urllib.parse
@@ -19,7 +19,7 @@ import pandas as pd
 import praw
 import xmltodict
 
-from Author import Author
+from Corpus import Corpus
 from Document import Document
 
 # --- Paramètres de la thématique ------------------------------------------
@@ -36,7 +36,8 @@ MOTS_HORS_SUJET = ["robocup", "robot", "soccer simulation", "simulation 2d",
 # --- Fichier de sauvegarde -------------------------------------------------
 # Path construit le chemin avec le bon séparateur selon l'OS (\ ou /) :
 # le programme reste multiplateforme, comme l'exigent les consignes.
-CHEMIN_CSV = Path("data") / "corpus.csv"
+CHEMIN_CSV = Path("data") / "corpus.csv"                     # données brutes des API
+CHEMIN_SAUVEGARDE = Path("data") / "corpus_sauvegarde.csv"   # sauvegarde du Corpus
 
 
 def nettoyer_espaces(chaine: str) -> str:
@@ -222,51 +223,22 @@ def filtrer_courts(df: pd.DataFrame, taille_min: int = 100) -> pd.DataFrame:
 
 
 # ==========================================================================
-# 4.3 — Instanciation des objets Document
+# 4.3 / 6.1 — Construction du corpus à partir du tableau
 # ==========================================================================
-def creer_documents(df: pd.DataFrame) -> dict[int, Document]:
-    """Crée un Document par ligne du tableau, indexé par un identifiant unique."""
-    documents = {}
-    # enumerate génère les identifiants séquentiellement : 1, 2, 3, ...
+def construire_corpus(df: pd.DataFrame, nom: str) -> Corpus:
+    """Crée un objet Corpus contenant un Document par ligne du tableau."""
+    corpus = Corpus(nom)
     # itertuples parcourt le tableau ligne par ligne (ligne.titre, ligne.date...)
-    for id_doc, ligne in enumerate(df.itertuples(), start=1):
-        documents[id_doc] = Document(
+    for ligne in df.itertuples():
+        corpus.add(Document(
             titre=ligne.titre,
             auteur=ligne.auteur,
             # Dans le CSV, la date est du texte : on la reconvertit en datetime
             date=datetime.fromisoformat(ligne.date),
             url=ligne.url,
             texte=ligne.texte,
-        )
-    return documents
-
-
-# ==========================================================================
-# 5.3 — Dictionnaire des auteurs
-# ==========================================================================
-def creer_auteurs(documents: dict[int, Document]) -> dict[str, Author]:
-    """Regroupe les documents par auteur : {nom de l'auteur: Author}."""
-    authors = {}
-    for id_doc, doc in documents.items():
-        # Nouvel auteur : on crée son instance avant de lui ajouter le document
-        if doc.auteur not in authors:
-            authors[doc.auteur] = Author(doc.auteur)
-        authors[doc.auteur].add(id_doc, doc)
-    return authors
-
-
-# ==========================================================================
-# 5.4 — Statistiques sur un auteur
-# ==========================================================================
-def statistiques_auteur(authors: dict[str, Author], nom: str) -> None:
-    """Affiche le nombre de documents et leur taille moyenne pour un auteur."""
-    if nom not in authors:
-        print(f"Auteur « {nom} » introuvable dans le corpus.")
-        return
-    auteur = authors[nom]
-    print(f"Auteur                 : {auteur.name}")
-    print(f"Nombre de documents    : {auteur.nb_docs}")
-    print(f"Taille moyenne         : {auteur.taille_moyenne():.1f} mots")
+        ))
+    return corpus
 
 
 # ==========================================================================
@@ -275,7 +247,7 @@ def statistiques_auteur(authors: dict[str, Author], nom: str) -> None:
 if __name__ == "__main__":
     if CHEMIN_CSV.exists():
         # Le fichier existe déjà : on recharge (rapide, hors ligne)
-        print(f"Chargement du corpus depuis {CHEMIN_CSV}")
+        print(f"Chargement des données depuis {CHEMIN_CSV}")
         df = charger(CHEMIN_CSV)
     else:
         # Premier lancement : on interroge les API puis on sauvegarde
@@ -284,7 +256,7 @@ if __name__ == "__main__":
         docs_arxiv = recuperer_arxiv(NB_DOCS)
         df = creer_dataframe(docs_reddit, docs_arxiv)
         sauvegarder(df, CHEMIN_CSV)
-        print(f"Corpus sauvegardé dans {CHEMIN_CSV}")
+        print(f"Données sauvegardées dans {CHEMIN_CSV}")
 
     # --- 3.1 : taille du corpus -------------------------------------------
     print(f"\nTaille du corpus : {len(df)} documents")
@@ -294,45 +266,54 @@ if __name__ == "__main__":
     # apply() appelle la fonction sur chaque texte de la colonne
     df["nb_mots"] = df["texte"].apply(compter_mots)
     df["nb_phrases"] = df["texte"].apply(compter_phrases)
-    print("\nMots et phrases (5 premiers documents) :")
-    print(df[["id", "origine", "nb_mots", "nb_phrases"]].head().to_string(index=False))
-    print("\nMoyennes par source :")
+    print("\nMoyennes de mots et de phrases par source :")
     print(df.groupby("origine")[["nb_mots", "nb_phrases"]].mean().round(1))
 
     # --- 3.3 : suppression des documents de moins de 100 caractères -------
     taille_avant = len(df)
     df = filtrer_courts(df, 100)
     print(f"\nDocuments supprimés (< 100 caractères) : {taille_avant - len(df)}")
-    print(f"Taille du corpus après filtrage : {len(df)} documents")
-    print(df["origine"].value_counts().to_string())
 
     # --- 3.4 : une unique chaîne contenant tous les documents -------------
     docs = df["texte"].tolist()            # la liste demandée en Partie 1
     texte_complet = " ".join(docs)         # join colle les textes avec un espace
-    print(f"\nLongueur de la chaîne complète : {len(texte_complet)} caractères")
+    print(f"Longueur de la chaîne complète : {len(texte_complet)} caractères")
 
-    # --- 4.3 : dictionnaire des objets Document ---------------------------
-    documents = creer_documents(df)
-    print(f"\nDictionnaire documents : {len(documents)} objets Document")
+    # --- 6.1 : création de l'objet Corpus ---------------------------------
+    corpus = construire_corpus(df, "FIFA World Cup")
+    print(f"\n{corpus!r}")        # !r : f-string qui appelle __repr__
 
-    print("\n--- print(doc) appelle __str__ : titre seul ---")
-    for id_doc in list(documents)[:3]:
-        print(f"{id_doc} : {documents[id_doc]}")
+    # --- 4.2 : affichage d'un document ------------------------------------
+    print("\n--- Document n°1 (méthode afficher) ---")
+    corpus.documents[1].afficher()
 
-    print("\n--- afficher() : toutes les informations ---")
-    documents[1].afficher()
+    # --- 6.2 : affichages triés -------------------------------------------
+    print("\n--- 5 documents les plus récents ---")
+    corpus.afficher_tri_date(5)
+    print("\n--- 5 premiers documents par ordre alphabétique ---")
+    corpus.afficher_tri_titre(5)
 
-    # --- 5.3 : dictionnaire des auteurs -----------------------------------
-    authors = creer_auteurs(documents)
-    print(f"\nDictionnaire authors : {len(authors)} auteurs différents")
-
-    # Les 5 auteurs les plus productifs (tri sur l'attribut nb_docs)
-    print("Auteurs les plus productifs :")
-    plus_productifs = sorted(authors.values(), key=lambda a: a.nb_docs, reverse=True)
-    for auteur in plus_productifs[:5]:
+    # --- 5.3 / 5.4 : auteurs ----------------------------------------------
+    print("\n--- Auteurs les plus productifs ---")
+    for auteur in corpus.auteurs_plus_productifs(5):
         print(f"  {auteur}")
 
-    # --- 5.4 : statistiques sur un auteur saisi par l'utilisateur ---------
     nom = input("\nNom d'un auteur (Entrée pour passer) : ").strip()
     if nom:
-        statistiques_auteur(authors, nom)
+        corpus.statistiques_auteur(nom)
+
+    # --- 6.3 / 6.4 : sauvegarde puis rechargement du corpus ---------------
+    corpus.save(CHEMIN_SAUVEGARDE)
+    print(f"\nCorpus sauvegardé dans {CHEMIN_SAUVEGARDE}")
+
+    corpus_recharge = Corpus("FIFA World Cup")
+    corpus_recharge.load(CHEMIN_SAUVEGARDE)
+    print(f"Corpus rechargé : {corpus_recharge!r}")
+
+    # Vérification : mêmes documents, dans le même ordre, avant et après
+    identiques = all(
+        corpus.documents[i].titre == corpus_recharge.documents[i].titre
+        and corpus.documents[i].date == corpus_recharge.documents[i].date
+        for i in corpus.documents
+    )
+    print(f"Sauvegarde et rechargement identiques : {identiques}")
