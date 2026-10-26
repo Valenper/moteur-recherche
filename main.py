@@ -8,6 +8,7 @@
   filtrage des documents trop courts, concaténation de tous les textes).
 - Parties 4 à 6 : les documents sont rangés dans un objet Corpus, qui gère
   aussi les auteurs, les affichages triés et la sauvegarde / le chargement.
+- Partie 7 : chaque document est un RedditDocument ou un ArxivDocument.
 """
 
 import urllib.parse
@@ -20,7 +21,7 @@ import praw
 import xmltodict
 
 from Corpus import Corpus
-from Document import Document
+from Document import ArxivDocument, RedditDocument
 
 # --- Paramètres de la thématique ------------------------------------------
 SUBREDDIT = "worldcup"                                # subreddit interrogé
@@ -223,21 +224,36 @@ def filtrer_courts(df: pd.DataFrame, taille_min: int = 100) -> pd.DataFrame:
 
 
 # ==========================================================================
-# 4.3 / 6.1 — Construction du corpus à partir du tableau
+# 6.1 / 7 — Construction du corpus à partir du tableau
 # ==========================================================================
 def construire_corpus(df: pd.DataFrame, nom: str) -> Corpus:
-    """Crée un objet Corpus contenant un Document par ligne du tableau."""
+    """Crée un objet Corpus contenant un document par ligne du tableau.
+
+    Selon la colonne origine, on instancie la classe fille adaptée.
+    (En Partie 9, ce choix sera confié à une fabrique.)
+    """
     corpus = Corpus(nom)
     # itertuples parcourt le tableau ligne par ligne (ligne.titre, ligne.date...)
     for ligne in df.itertuples():
-        corpus.add(Document(
-            titre=ligne.titre,
-            auteur=ligne.auteur,
-            # Dans le CSV, la date est du texte : on la reconvertit en datetime
-            date=datetime.fromisoformat(ligne.date),
-            url=ligne.url,
-            texte=ligne.texte,
-        ))
+        # Dans le CSV, la date est du texte : on la reconvertit en datetime
+        date = datetime.fromisoformat(ligne.date)
+
+        if ligne.origine == "reddit":
+            doc = RedditDocument(ligne.titre, ligne.auteur, date, ligne.url,
+                                 ligne.texte,
+                                 # pandas lit les nombres de cette colonne en
+                                 # décimaux (42.0) : on reconvertit en entier
+                                 nb_commentaires=int(ligne.nb_commentaires))
+        else:
+            # Dans le CSV : "Bob, Carol" ; case vide (NaN) s'il n'y en a pas
+            if isinstance(ligne.coauteurs, str):
+                coauteurs = ligne.coauteurs.split(", ")
+            else:
+                coauteurs = []
+            doc = ArxivDocument(ligne.titre, ligne.auteur, date, ligne.url,
+                                ligne.texte, coauteurs=coauteurs)
+
+        corpus.add(doc)   # add() accepte les deux classes filles sans modification
     return corpus
 
 
@@ -283,9 +299,22 @@ if __name__ == "__main__":
     corpus = construire_corpus(df, "FIFA World Cup")
     print(f"\n{corpus!r}")        # !r : f-string qui appelle __repr__
 
-    # --- 4.2 : affichage d'un document ------------------------------------
-    print("\n--- Document n°1 (méthode afficher) ---")
-    corpus.documents[1].afficher()
+    # --- 7 : un document de chaque classe fille ---------------------------
+    # next() renvoie le premier document qui vérifie la condition
+    doc_reddit = next(d for d in corpus.documents.values() if isinstance(d, RedditDocument))
+    doc_arxiv = next(d for d in corpus.documents.values() if isinstance(d, ArxivDocument))
+
+    print("\n--- Un RedditDocument (afficher : mère + commentaires) ---")
+    doc_reddit.afficher()
+    print("\n--- Un ArxivDocument (afficher : mère + co-auteurs) ---")
+    doc_arxiv.afficher()
+
+    # Le mutateur refuse une valeur invalide
+    print("\n--- Test du mutateur : nb_commentaires = -5 ---")
+    try:
+        doc_reddit.nb_commentaires = -5
+    except ValueError as erreur:
+        print(f"Erreur attrapée : {erreur}")
 
     # --- 6.2 : affichages triés -------------------------------------------
     print("\n--- 5 documents les plus récents ---")
