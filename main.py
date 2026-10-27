@@ -9,6 +9,7 @@
 - Parties 4 à 6 : les documents sont rangés dans un objet Corpus, qui gère
   aussi les auteurs, les affichages triés et la sauvegarde / le chargement.
 - Partie 7 : chaque document est un RedditDocument ou un ArxivDocument.
+- Partie 8 : polymorphisme, champ type et méthode getType().
 """
 
 import urllib.parse
@@ -316,6 +317,19 @@ if __name__ == "__main__":
     except ValueError as erreur:
         print(f"Erreur attrapée : {erreur}")
 
+    # --- 8.1 : polymorphisme ----------------------------------------------
+    # Le corpus contient des objets des deux classes filles, ajoutés par la
+    # même méthode add() de Corpus, qui n'a pas été modifiée pour autant.
+    # On compte les documents par source en appelant getType() sur chacun.
+    comptes: dict[str, int] = {}
+    for doc in corpus.documents.values():
+        comptes[doc.getType()] = comptes.get(doc.getType(), 0) + 1
+    print(f"\n--- Polymorphisme : documents par type (getType) : {comptes}")
+
+    # --- 8.2 : liste des documents avec leur source -----------------------
+    print("\n--- 8 documents les plus récents, avec leur source ---")
+    corpus.afficher_sources(8)
+
     # --- 6.2 : affichages triés -------------------------------------------
     print("\n--- 5 documents les plus récents ---")
     corpus.afficher_tri_date(5)
@@ -339,9 +353,12 @@ if __name__ == "__main__":
     corpus_recharge.load(CHEMIN_SAUVEGARDE)
     print(f"Corpus rechargé : {corpus_recharge!r}")
 
-    # Vérification : mêmes documents, dans le même ordre, avant et après
+    # Vérification : mêmes documents, dans le même ordre, avant et après.
+    # On compare aussi la classe (type) et str(), qui contient les attributs
+    # spécifiques (nombre de commentaires, nombre de co-auteurs).
     identiques = all(
-        corpus.documents[i].titre == corpus_recharge.documents[i].titre
+        type(corpus.documents[i]) is type(corpus_recharge.documents[i])
+        and str(corpus.documents[i]) == str(corpus_recharge.documents[i])
         and corpus.documents[i].date == corpus_recharge.documents[i].date
         for i in corpus.documents
     )

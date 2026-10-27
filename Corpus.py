@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 
 from Author import Author
-from Document import Document
+from Document import ArxivDocument, Document, RedditDocument
 
 
 class Corpus:
@@ -68,6 +68,15 @@ class Corpus:
         for doc in docs_tries[:n]:
             print(f"  {doc}")
 
+    def afficher_sources(self, n: int = 5) -> None:
+        """8.2 — Affiche les n documents les plus récents avec leur source."""
+        docs_tries = sorted(self.documents.items(), key=lambda paire: paire[1].date,
+                            reverse=True)
+        # Polymorphisme : getType() est appelée sans savoir si doc est un
+        # RedditDocument ou un ArxivDocument ; chacun répond pour lui-même
+        for id_doc, doc in docs_tries[:n]:
+            print(f"  {id_doc:>3} | {doc.getType():<6} | {doc.titre}")
+
     def __repr__(self) -> str:
         """Affichage digeste et sans ambiguïté, appelé par repr(corpus)."""
         return (f"Corpus(nom='{self.nom}', {len(self.documents)} documents, "
@@ -81,14 +90,21 @@ class Corpus:
         # Une ligne par document : on transforme chaque objet en dictionnaire
         lignes = []
         for id_doc, doc in self.documents.items():
-            lignes.append({
+            ligne = {
                 "id": id_doc,
                 "titre": doc.titre,
                 "auteur": doc.auteur,
                 "date": doc.date.isoformat(),   # datetime -> texte ISO
                 "url": doc.url,
                 "texte": doc.texte,
-            })
+                "origine": doc.getType(),       # pour recréer la bonne classe fille
+            }
+            # Attributs spécifiques : la case reste vide pour l'autre source
+            if doc.getType() == "reddit":
+                ligne["nb_commentaires"] = doc.nb_commentaires
+            elif doc.getType() == "arxiv":
+                ligne["coauteurs"] = ", ".join(doc.coauteurs)
+            lignes.append(ligne)
         chemin.parent.mkdir(exist_ok=True)
         pd.DataFrame(lignes).to_csv(chemin, sep="\t", index=False, encoding="utf-8")
 
@@ -101,11 +117,23 @@ class Corpus:
 
         df = pd.read_csv(chemin, sep="\t", encoding="utf-8")
         for ligne in df.itertuples():
+            date = datetime.fromisoformat(ligne.date)    # texte ISO -> datetime
+
+            # La colonne origine indique quelle classe fille recréer.
+            # (Même logique que construire_corpus dans main.py : en Partie 9,
+            # une fabrique centralisera ce choix à un seul endroit.)
+            if ligne.origine == "reddit":
+                doc = RedditDocument(ligne.titre, ligne.auteur, date, ligne.url,
+                                     ligne.texte,
+                                     nb_commentaires=int(ligne.nb_commentaires))
+            else:
+                # Case vide (NaN, qui n'est pas du texte) : aucun co-auteur
+                if isinstance(ligne.coauteurs, str):
+                    coauteurs = ligne.coauteurs.split(", ")
+                else:
+                    coauteurs = []
+                doc = ArxivDocument(ligne.titre, ligne.auteur, date, ligne.url,
+                                    ligne.texte, coauteurs=coauteurs)
+
             # add() recrée les identifiants et le dictionnaire des auteurs
-            self.add(Document(
-                titre=ligne.titre,
-                auteur=ligne.auteur,
-                date=datetime.fromisoformat(ligne.date),   # texte ISO -> datetime
-                url=ligne.url,
-                texte=ligne.texte,
-            ))
+            self.add(doc)

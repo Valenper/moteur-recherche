@@ -9,13 +9,14 @@ class Document:
 
     def __init__(self, titre: str = "", auteur: str = "",
                  date: datetime | None = None, url: str = "",
-                 texte: str = "") -> None:
-        """Constructeur : initialise les 5 attributs demandés par l'énoncé (4.1)."""
+                 texte: str = "", type: str = "") -> None:
+        """Constructeur : initialise les attributs communs à tous les documents."""
         self.titre = titre      # titre du document
         self.auteur = auteur    # nom de l'auteur
         self.date = date        # date de publication (objet datetime)
         self.url = url          # adresse de la source
         self.texte = texte      # contenu textuel
+        self.type = type        # source du document (8.2), fixée par les classes filles
 
     # ----------------------------------------------------------------------
     # 4.2 — Affichage
@@ -45,10 +46,14 @@ class RedditDocument(Document):
                  date: datetime | None = None, url: str = "",
                  texte: str = "", nb_commentaires: int = 0) -> None:
         # super() appelle le constructeur de la classe mère, qui initialise
-        # les 5 attributs communs à tous les documents
-        super().__init__(titre, auteur, date, url, texte)
+        # les attributs communs ; la classe fille lui transmet son type
+        super().__init__(titre, auteur, date, url, texte, type="reddit")
         # Passe par le mutateur (setter) ci-dessous : la valeur est vérifiée
         self.nb_commentaires = nb_commentaires
+
+    def getType(self) -> str:
+        """8.2 — Renvoie la source du document."""
+        return self.type
 
     # --- Accesseur / mutateur ---------------------------------------------
     @property
@@ -83,10 +88,14 @@ class ArxivDocument(Document):
     def __init__(self, titre: str = "", auteur: str = "",
                  date: datetime | None = None, url: str = "",
                  texte: str = "", coauteurs: list[str] | None = None) -> None:
-        super().__init__(titre, auteur, date, url, texte)
+        super().__init__(titre, auteur, date, url, texte, type="arxiv")
         # Jamais de liste vide [] comme valeur par défaut : elle serait PARTAGÉE
         # entre tous les objets. On utilise None et on crée une liste neuve ici.
         self.coauteurs = coauteurs if coauteurs is not None else []
+
+    def getType(self) -> str:
+        """8.2 — Renvoie la source du document."""
+        return self.type
 
     # --- Accesseur / mutateur ---------------------------------------------
     @property
@@ -114,4 +123,6 @@ class ArxivDocument(Document):
         print(f"Co-auteurs : {coauteurs}")
 
     def __str__(self) -> str:
-        return f"[Arxiv] {self.titre} ({self.auteur} + {len(self.coauteurs)} co-auteur(s))"
+        if self.coauteurs:
+            return f"[Arxiv] {self.titre} ({self.auteur} + {len(self.coauteurs)} co-auteur(s))"
+        return f"[Arxiv] {self.titre} ({self.auteur})"
