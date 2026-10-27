@@ -1,4 +1,5 @@
-"""Module Corpus : classe gérant une collection de documents (Partie 6)."""
+"""Module Corpus : classe gérant une collection de documents (Partie 6),
+rendue unique par le patron Singleton (Partie 9.1)."""
 
 from datetime import datetime
 from pathlib import Path
@@ -6,9 +7,51 @@ from pathlib import Path
 import pandas as pd
 
 from Author import Author
-from Document import ArxivDocument, Document, RedditDocument
+from Document import Document, DocumentFactory
 
 
+# ==========================================================================
+# 9.1 — Patron Singleton, écrit comme un décorateur (cf. cours)
+# ==========================================================================
+def singleton(cls):
+    """Décorateur : la classe décorée ne pourra avoir qu'une seule instance."""
+    instance = [None]       # liste : modifiable depuis la fonction wrapper
+
+    def wrapper(*args, **kwargs):
+        # Premier appel : on crée l'instance. Appels suivants : on renvoie
+        # toujours la même, les arguments sont alors ignorés.
+        if instance[0] is None:
+            instance[0] = cls(*args, **kwargs)
+        return instance[0]
+
+    return wrapper
+
+
+# ==========================================================================
+# Conversion d'une ligne de tableau (CSV) en document
+# ==========================================================================
+def document_depuis_ligne(ligne) -> Document:
+    """Crée le document correspondant à une ligne lue avec itertuples().
+
+    Utilisée à la fois par Corpus.load et par main.py : le code de
+    création n'existe plus qu'à un seul endroit, et le choix de la
+    classe fille est confié à la fabrique.
+    """
+    # Cases vides du CSV (NaN) pour l'autre source : valeurs neutres
+    nb_commentaires = int(ligne.nb_commentaires) if pd.notna(ligne.nb_commentaires) else 0
+    coauteurs = ligne.coauteurs.split(", ") if isinstance(ligne.coauteurs, str) else []
+
+    return DocumentFactory.creer(
+        ligne.origine,                         # "reddit" ou "arxiv"
+        ligne.titre, ligne.auteur,
+        datetime.fromisoformat(ligne.date),    # texte ISO -> datetime
+        ligne.url, ligne.texte,
+        nb_commentaires=nb_commentaires,
+        coauteurs=coauteurs,
+    )
+
+
+@singleton      # équivaut à écrire, après la classe : Corpus = singleton(Corpus)
 class Corpus:
     """Un corpus : les documents, leurs auteurs et les opérations sur l'ensemble."""
 
@@ -117,23 +160,6 @@ class Corpus:
 
         df = pd.read_csv(chemin, sep="\t", encoding="utf-8")
         for ligne in df.itertuples():
-            date = datetime.fromisoformat(ligne.date)    # texte ISO -> datetime
-
-            # La colonne origine indique quelle classe fille recréer.
-            # (Même logique que construire_corpus dans main.py : en Partie 9,
-            # une fabrique centralisera ce choix à un seul endroit.)
-            if ligne.origine == "reddit":
-                doc = RedditDocument(ligne.titre, ligne.auteur, date, ligne.url,
-                                     ligne.texte,
-                                     nb_commentaires=int(ligne.nb_commentaires))
-            else:
-                # Case vide (NaN, qui n'est pas du texte) : aucun co-auteur
-                if isinstance(ligne.coauteurs, str):
-                    coauteurs = ligne.coauteurs.split(", ")
-                else:
-                    coauteurs = []
-                doc = ArxivDocument(ligne.titre, ligne.auteur, date, ligne.url,
-                                    ligne.texte, coauteurs=coauteurs)
-
-            # add() recrée les identifiants et le dictionnaire des auteurs
-            self.add(doc)
+            # La fabrique recrée la bonne classe fille ; add() recrée les
+            # identifiants et le dictionnaire des auteurs
+            self.add(document_depuis_ligne(ligne))

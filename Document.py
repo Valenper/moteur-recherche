@@ -1,5 +1,6 @@
-"""Module Document : la classe mère Document (Partie 4) et ses deux classes
-filles RedditDocument et ArxivDocument (Partie 7)."""
+"""Module Document : la classe mère Document (Partie 4), ses deux classes
+filles RedditDocument et ArxivDocument (Partie 7) et la fabrique
+DocumentFactory (Partie 9.2)."""
 
 from datetime import datetime
 
@@ -126,3 +127,25 @@ class ArxivDocument(Document):
         if self.coauteurs:
             return f"[Arxiv] {self.titre} ({self.auteur} + {len(self.coauteurs)} co-auteur(s))"
         return f"[Arxiv] {self.titre} ({self.auteur})"
+
+
+# ==========================================================================
+# 9.2 — Patron Fabrique (Factory)
+# ==========================================================================
+class DocumentFactory:
+    """Fabrique : centralise en un seul endroit la création des documents."""
+
+    @staticmethod
+    def creer(type: str, titre: str, auteur: str, date: datetime, url: str,
+              texte: str, nb_commentaires: int = 0,
+              coauteurs: list[str] | None = None) -> Document:
+        """Renvoie une instance de la classe fille correspondant au type."""
+        # Méthode statique : elle ne reçoit ni self ni cls, c'est une simple
+        # fonction rangée dans la classe. On l'appelle DocumentFactory.creer(...)
+        if type == "reddit":
+            return RedditDocument(titre, auteur, date, url, texte,
+                                  nb_commentaires=nb_commentaires)
+        elif type == "arxiv":
+            return ArxivDocument(titre, auteur, date, url, texte,
+                                 coauteurs=coauteurs)
+        raise ValueError(f"Type de document inconnu : {type}")

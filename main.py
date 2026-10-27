@@ -10,6 +10,7 @@
   aussi les auteurs, les affichages triés et la sauvegarde / le chargement.
 - Partie 7 : chaque document est un RedditDocument ou un ArxivDocument.
 - Partie 8 : polymorphisme, champ type et méthode getType().
+- Partie 9 : patrons de conception Singleton (Corpus) et Fabrique (documents).
 """
 
 import urllib.parse
@@ -21,8 +22,8 @@ import pandas as pd
 import praw
 import xmltodict
 
-from Corpus import Corpus
-from Document import ArxivDocument, RedditDocument
+from Corpus import Corpus, document_depuis_ligne
+from Document import ArxivDocument, DocumentFactory, RedditDocument
 
 # --- Paramètres de la thématique ------------------------------------------
 SUBREDDIT = "worldcup"                                # subreddit interrogé
@@ -225,36 +226,15 @@ def filtrer_courts(df: pd.DataFrame, taille_min: int = 100) -> pd.DataFrame:
 
 
 # ==========================================================================
-# 6.1 / 7 — Construction du corpus à partir du tableau
+# 6.1 / 9.2 — Construction du corpus à partir du tableau
 # ==========================================================================
 def construire_corpus(df: pd.DataFrame, nom: str) -> Corpus:
-    """Crée un objet Corpus contenant un document par ligne du tableau.
-
-    Selon la colonne origine, on instancie la classe fille adaptée.
-    (En Partie 9, ce choix sera confié à une fabrique.)
-    """
+    """Crée le Corpus contenant un document par ligne du tableau."""
     corpus = Corpus(nom)
-    # itertuples parcourt le tableau ligne par ligne (ligne.titre, ligne.date...)
+    # itertuples parcourt le tableau ligne par ligne ; document_depuis_ligne
+    # confie à la fabrique le choix de la classe fille (Reddit ou Arxiv)
     for ligne in df.itertuples():
-        # Dans le CSV, la date est du texte : on la reconvertit en datetime
-        date = datetime.fromisoformat(ligne.date)
-
-        if ligne.origine == "reddit":
-            doc = RedditDocument(ligne.titre, ligne.auteur, date, ligne.url,
-                                 ligne.texte,
-                                 # pandas lit les nombres de cette colonne en
-                                 # décimaux (42.0) : on reconvertit en entier
-                                 nb_commentaires=int(ligne.nb_commentaires))
-        else:
-            # Dans le CSV : "Bob, Carol" ; case vide (NaN) s'il n'y en a pas
-            if isinstance(ligne.coauteurs, str):
-                coauteurs = ligne.coauteurs.split(", ")
-            else:
-                coauteurs = []
-            doc = ArxivDocument(ligne.titre, ligne.auteur, date, ligne.url,
-                                ligne.texte, coauteurs=coauteurs)
-
-        corpus.add(doc)   # add() accepte les deux classes filles sans modification
+        corpus.add(document_depuis_ligne(ligne))   # add() accepte les deux classes filles
     return corpus
 
 
@@ -283,6 +263,9 @@ if __name__ == "__main__":
     # apply() appelle la fonction sur chaque texte de la colonne
     df["nb_mots"] = df["texte"].apply(compter_mots)
     df["nb_phrases"] = df["texte"].apply(compter_phrases)
+    # Calculé pour chaque document ; on n'en affiche que 5 pour rester lisible
+    print("\nMots et phrases par document (5 premiers) :")
+    print(df[["id", "origine", "nb_mots", "nb_phrases"]].head().to_string(index=False))
     print("\nMoyennes de mots et de phrases par source :")
     print(df.groupby("origine")[["nb_mots", "nb_phrases"]].mean().round(1))
 
@@ -345,21 +328,35 @@ if __name__ == "__main__":
     if nom:
         corpus.statistiques_auteur(nom)
 
+    # --- 9.1 : Singleton --------------------------------------------------
+    print("\n--- Singleton : on essaie de créer un second corpus ---")
+    autre = Corpus("Un autre nom")
+    print(f"autre is corpus : {autre is corpus}")      # même objet en mémoire
+    print(f"Nom de autre    : {autre.nom}")            # argument ignoré
+
+    # --- 9.2 : Fabrique ---------------------------------------------------
+    print("\n--- Fabrique : création par type ---")
+    doc_test = DocumentFactory.creer("arxiv", "Titre test", "Auteur test",
+                                     datetime.now(), "url", "texte",
+                                     coauteurs=["Co-auteur"])
+    print(f"Classe créée : {type(doc_test).__name__} -> {doc_test}")
+    try:
+        DocumentFactory.creer("twitter", "t", "a", datetime.now(), "u", "x")
+    except ValueError as erreur:
+        print(f"Erreur attrapée : {erreur}")
+
     # --- 6.3 / 6.4 : sauvegarde puis rechargement du corpus ---------------
     corpus.save(CHEMIN_SAUVEGARDE)
     print(f"\nCorpus sauvegardé dans {CHEMIN_SAUVEGARDE}")
 
-    corpus_recharge = Corpus("FIFA World Cup")
-    corpus_recharge.load(CHEMIN_SAUVEGARDE)
-    print(f"Corpus rechargé : {corpus_recharge!r}")
+    # Avec le Singleton, impossible de créer un second corpus pour comparer :
+    # on garde une « photo » des documents avant de recharger le même objet.
+    # La photo contient la classe, str() (avec les attributs spécifiques :
+    # commentaires, co-auteurs) et la date de chaque document.
+    avant = [(type(doc), str(doc), doc.date) for doc in corpus.documents.values()]
 
-    # Vérification : mêmes documents, dans le même ordre, avant et après.
-    # On compare aussi la classe (type) et str(), qui contient les attributs
-    # spécifiques (nombre de commentaires, nombre de co-auteurs).
-    identiques = all(
-        type(corpus.documents[i]) is type(corpus_recharge.documents[i])
-        and str(corpus.documents[i]) == str(corpus_recharge.documents[i])
-        and corpus.documents[i].date == corpus_recharge.documents[i].date
-        for i in corpus.documents
-    )
-    print(f"Sauvegarde et rechargement identiques : {identiques}")
+    corpus.load(CHEMIN_SAUVEGARDE)
+    print(f"Corpus rechargé : {corpus!r}")
+
+    apres = [(type(doc), str(doc), doc.date) for doc in corpus.documents.values()]
+    print(f"Sauvegarde et rechargement identiques : {avant == apres}")
