@@ -1,6 +1,11 @@
 """Module Corpus : classe gérant une collection de documents (Partie 6),
-rendue unique par le patron Singleton (Partie 9.1)."""
+rendue unique par le patron Singleton (Partie 9.1).
 
+Projet Partie 2 : recherche de passages par expressions régulières
+(search) et concordancier (concorde).
+"""
+
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -61,6 +66,9 @@ class Corpus:
         self.documents: dict[int, Document] = {}      # {id: Document}
         self.id_document = 0                          # compteur de documents
         self.authors: dict[str, Author] = {}          # {nom de l'auteur: Author}
+        # Cache de la chaîne concaténant tous les textes (projet Partie 2) :
+        # None tant qu'elle n'a pas été construite
+        self.__texte_complet: str | None = None
 
     # ----------------------------------------------------------------------
     # 6.1 — Ajout d'un document (reprend les Parties 4.3 et 5.3)
@@ -69,6 +77,7 @@ class Corpus:
         """Ajoute un document au corpus, met à jour ses auteurs, renvoie son id."""
         # Le compteur fournit un identifiant unique et séquentiel : 1, 2, 3...
         self.id_document += 1
+        self.__texte_complet = None     # le corpus change : le cache est périmé
         self.documents[self.id_document] = doc
 
         # Nouvel auteur : on crée son instance avant de lui ajouter le document
@@ -157,9 +166,62 @@ class Corpus:
         self.documents = {}
         self.id_document = 0
         self.authors = {}
+        self.__texte_complet = None
 
         df = pd.read_csv(chemin, sep="\t", encoding="utf-8")
         for ligne in df.itertuples():
             # La fabrique recrée la bonne classe fille ; add() recrée les
             # identifiants et le dictionnaire des auteurs
             self.add(document_depuis_ligne(ligne))
+
+    # ======================================================================
+    # Projet Partie 2, section 1 — Expressions régulières
+    # ======================================================================
+    def texte_complet(self) -> str:
+        """Renvoie une chaîne unique concaténant les textes de tous les documents.
+
+        Elle n'est construite qu'une fois, au premier appel, puis mise en cache.
+        """
+        if self.__texte_complet is None:
+            # Séparateur \n : les textes n'en contiennent plus (nettoyer_espaces),
+            # il marque donc la frontière entre deux documents
+            self.__texte_complet = "\n".join(doc.texte for doc in self.documents.values())
+        return self.__texte_complet
+
+    @staticmethod
+    def _compiler(motif: str) -> re.Pattern:
+        """Compile le motif, entouré de frontières de mot, insensible à la casse."""
+        try:
+            return re.compile(r"\b" + motif + r"\b", re.IGNORECASE)
+        except re.error as erreur:
+            # Ex. une parenthèse non fermée : message clair au lieu d'un plantage
+            raise ValueError(f"Expression régulière invalide : {motif} ({erreur})")
+
+    def search(self, mot: str) -> list[str]:
+        """1.1 — Renvoie les passages (phrases) contenant le mot-clé.
+
+        Le mot-clé est une expression régulière : "goals?" trouve goal et goals.
+        """
+        motif = self._compiler(mot)
+        # [^.\n]* : tout sauf un point ou une frontière de document. Le passage
+        # renvoyé va donc du début à la fin de la phrase qui contient le mot.
+        phrase = re.compile(r"[^.\n]*" + motif.pattern + r"[^.\n]*", re.IGNORECASE)
+        return [passage.strip() for passage in phrase.findall(self.texte_complet())]
+
+    def concorde(self, expression: str, taille_contexte: int = 30) -> pd.DataFrame:
+        """1.2 — Concordancier : contexte gauche / motif trouvé / contexte droit."""
+        texte = self.texte_complet()
+        lignes = []
+        # finditer donne chaque occurrence avec sa position (start, end) dans le texte
+        for occurrence in self._compiler(expression).finditer(texte):
+            debut, fin = occurrence.start(), occurrence.end()
+            lignes.append({
+                # max(0, ...) : pas d'indice négatif en tout début de texte
+                "contexte gauche": texte[max(0, debut - taille_contexte):debut],
+                "motif trouvé": occurrence.group(),
+                "contexte droit": texte[fin:fin + taille_contexte],
+            })
+        concordance = pd.DataFrame(lignes, columns=["contexte gauche", "motif trouvé",
+                                                    "contexte droit"])
+        # Les frontières de documents (\n) deviennent des espaces à l'affichage
+        return concordance.replace("\n", " ", regex=True)
