@@ -5,6 +5,7 @@ main.py en Partie 1) : pas de nouvel appel aux API.
 
 - Section 1 : expressions régulières (search, concorde).
 - Section 2 : nettoyage du texte et statistiques (vocabulaire, TF, DF).
+- Section 3 : matrices Documents x Termes (TF et TF-IDF) dans SearchEngine.
 """
 
 from pathlib import Path
@@ -12,6 +13,7 @@ from pathlib import Path
 import pandas as pd
 
 from Corpus import Corpus, nettoyer_texte
+from SearchEngine import SearchEngine
 
 CHEMIN_SAUVEGARDE = Path("data") / "corpus_sauvegarde.csv"
 
@@ -47,7 +49,11 @@ if __name__ == "__main__":
     expression = input("\nExpression à rechercher (Entrée pour passer) : ").strip()
     if expression:
         try:
-            print(corpus.concorde(expression, 35).to_string(index=False))
+            resultat = corpus.concorde(expression, 35)
+            if resultat.empty:                       # aucune occurrence trouvée
+                print(f"Aucune occurrence de « {expression} » dans le corpus.")
+            else:
+                print(resultat.to_string(index=False))
         except ValueError as erreur:
             print(f"Erreur : {erreur}")
 
@@ -67,3 +73,37 @@ if __name__ == "__main__":
     mots_exemples = [mot for mot in ["messi", "var", "penalty", "model", "2026"]
                      if mot in freq.index]
     print(freq.loc[mots_exemples].to_string())
+
+    # --- 3 : matrices Documents x Termes ----------------------------------------
+    moteur = SearchEngine(corpus)
+    n_docs, n_mots = moteur.mat_TF.shape
+    print(f"\n--- Matrice TF : {n_docs} documents x {n_mots} mots ---")
+    remplissage = moteur.mat_TF.nnz / (n_docs * n_mots)    # nnz = cases non nulles
+    print(f"Cases non nulles : {moteur.mat_TF.nnz} sur {n_docs * n_mots} "
+          f"({remplissage:.2%}) : la matrice est très creuse")
+
+    # 3.1 / 3.3 : ce que vocab contient pour un mot
+    print(f"vocab['messi'] = {moteur.vocab['messi']}")
+
+    # Vérification croisée avec la section 2 : mêmes TF et DF pour chaque mot
+    coherent = all(
+        moteur.vocab[mot]["occurrences"] == ligne.term_frequency
+        and moteur.vocab[mot]["nb_documents"] == ligne.document_frequency
+        for mot, ligne in freq.iterrows()
+    )
+    print(f"vocab cohérent avec le tableau freq de la section 2 : {coherent}")
+
+    # 3.4 : IDF des mots vus plus haut (log(N / df))
+    print("\n--- IDF : rare = élevé, présent partout = faible ---")
+    for mot in ["the", "soccer", "model", "messi", "penalty"]:
+        if mot in moteur.vocab:
+            print(f"  {mot:<8} df = {moteur.vocab[mot]['nb_documents']:>3}   "
+                  f"idf = {moteur.idf[moteur.vocab[mot]['id']]:.2f}")
+
+    # Les 5 mots qui caractérisent le mieux le document 1 (TF vs TF-IDF)
+    mots_du_vocab = sorted(moteur.vocab, key=lambda mot: moteur.vocab[mot]["id"])
+    for nom_matrice, matrice in [("TF", moteur.mat_TF), ("TF-IDF", moteur.mat_TFxIDF)]:
+        ligne = matrice[0].toarray().ravel()          # ligne du document 1
+        meilleurs = ligne.argsort()[::-1][:5]         # indices des 5 plus grands
+        mots = ", ".join(f"{mots_du_vocab[j]} ({ligne[j]:.1f})" for j in meilleurs)
+        print(f"Document 1, top 5 {nom_matrice:<6} : {mots}")
