@@ -4,13 +4,14 @@ Le corpus nettoyé est rechargé depuis data/corpus_sauvegarde.csv (produit par
 main.py en Partie 1) : pas de nouvel appel aux API.
 
 - Section 1 : expressions régulières (search, concorde).
+- Section 2 : nettoyage du texte et statistiques (vocabulaire, TF, DF).
 """
 
 from pathlib import Path
 
 import pandas as pd
 
-from Corpus import Corpus
+from Corpus import Corpus, nettoyer_texte
 
 CHEMIN_SAUVEGARDE = Path("data") / "corpus_sauvegarde.csv"
 
@@ -42,10 +43,27 @@ if __name__ == "__main__":
           f"(10 premières) ---")
     print(concordance.head(10).to_string(index=False))
 
-    # --- Saisie par l'utilisateur ---------------------------------------------
+    # Saisie par l'utilisateur
     expression = input("\nExpression à rechercher (Entrée pour passer) : ").strip()
     if expression:
         try:
             print(corpus.concorde(expression, 35).to_string(index=False))
         except ValueError as erreur:
             print(f"Erreur : {erreur}")
+
+    # --- 2.1 : nettoyage du texte ---------------------------------------------
+    exemple = corpus.documents[1].texte[:200]
+    print("\n--- nettoyer_texte : avant / après ---")
+    print(f"Avant : {exemple!r}")      # !r montre les caractères invisibles (\u200b)
+    print(f"Après : {nettoyer_texte(exemple)!r}")
+
+    # --- 2.2 à 2.4 : statistiques ---------------------------------------------
+    print("\n--- stats(15) ---")
+    corpus.stats(15)
+
+    # TF et DF ne disent pas la même chose (2.4)
+    freq = corpus.frequences()
+    print("\n--- TF vs DF pour quelques mots ---")
+    mots_exemples = [mot for mot in ["messi", "var", "penalty", "model", "2026"]
+                     if mot in freq.index]
+    print(freq.loc[mots_exemples].to_string())

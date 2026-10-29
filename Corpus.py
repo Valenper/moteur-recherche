@@ -2,7 +2,8 @@
 rendue unique par le patron Singleton (Partie 9.1).
 
 Projet Partie 2 : recherche de passages par expressions régulières
-(search) et concordancier (concorde).
+(search), concordancier (concorde), nettoyage du texte et statistiques
+(vocabulaire, term frequency, document frequency).
 """
 
 import re
@@ -30,6 +31,27 @@ def singleton(cls):
         return instance[0]
 
     return wrapper
+
+
+# ==========================================================================
+# Projet Partie 2, section 2.1 — Nettoyage du texte
+# ==========================================================================
+def nettoyer_texte(chaine: str) -> str:
+    """Normalise un texte avant de le découper en mots.
+
+    "Messi's GOAL!" et "messi s goal" doivent donner les mêmes mots.
+    """
+    chaine = chaine.lower()                           # minuscules
+    chaine = chaine.replace("\n", " ")                # sauts de ligne
+    # Caractères invisibles (espaces de largeur nulle) trouvés dans certains
+    # posts Reddit : on les SUPPRIME, sinon l'étape suivante les remplacerait
+    # par une espace et couperait le mot en deux ("f\u200bor" -> "f or")
+    chaine = re.sub(r"[\u200b\u200c\u200d\u2060\ufeff]", "", chaine)
+    # Ponctuation, symboles, emojis et "_" -> espace. \w garde les lettres
+    # (y compris accentuées) et les chiffres : on conserve les chiffres, car
+    # les années (2022, 2026) et les scores comptent pour notre thématique.
+    chaine = re.sub(r"[^\w\s]|_", " ", chaine)
+    return re.sub(r"\s+", " ", chaine).strip()      # espaces multiples -> une
 
 
 # ==========================================================================
@@ -225,3 +247,39 @@ class Corpus:
                                                     "contexte droit"])
         # Les frontières de documents (\n) deviennent des espaces à l'affichage
         return concordance.replace("\n", " ", regex=True)
+
+    # ======================================================================
+    # Projet Partie 2, sections 2.2 à 2.4 — Statistiques
+    # ======================================================================
+    def frequences(self) -> pd.DataFrame:
+        """Tableau freq : pour chaque mot du vocabulaire, son nombre total
+        d'occurrences (term frequency) et le nombre de documents qui le
+        contiennent (document frequency). Trié du plus fréquent au moins fréquent.
+        """
+        term_frequency: dict[str, int] = {}       # mot -> occurrences dans le corpus
+        document_frequency: dict[str, int] = {}   # mot -> nombre de documents
+
+        # Un SEUL parcours du corpus : vocabulaire, TF et DF sont construits
+        # en même temps (les clés des dictionnaires forment le vocabulaire)
+        for doc in self.documents.values():
+            # Tokenisation : nettoyer_texte a remplacé toute la ponctuation par
+            # des espaces, split() découpe donc sur espaces, tabulations, etc.
+            mots = nettoyer_texte(doc.texte).split()
+
+            for mot in mots:                       # TF : chaque occurrence compte
+                term_frequency[mot] = term_frequency.get(mot, 0) + 1
+            for mot in set(mots):                  # DF : une fois par document
+                document_frequency[mot] = document_frequency.get(mot, 0) + 1
+
+        # Deux dictionnaires de mêmes clés -> un tableau (index = les mots)
+        freq = pd.DataFrame({"term_frequency": term_frequency,
+                             "document_frequency": document_frequency})
+        freq.index.name = "mot"
+        return freq.sort_values("term_frequency", ascending=False)
+
+    def stats(self, n: int = 10) -> None:
+        """Affiche le nombre de mots différents et les n mots les plus fréquents."""
+        freq = self.frequences()
+        print(f"Nombre de mots différents dans le corpus : {len(freq)}")
+        print(f"Les {n} mots les plus fréquents :")
+        print(freq.head(n).to_string())
