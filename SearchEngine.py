@@ -6,6 +6,7 @@ scipy est utilisé uniquement pour stocker la matrice creuse (csr_matrix).
 """
 
 import numpy as np
+import pandas as pd
 from scipy import sparse
 
 from Corpus import nettoyer_texte
@@ -24,6 +25,7 @@ class SearchEngine:
         self.mat_TF: sparse.csr_matrix | None = None        # 3.2
         self.idf: np.ndarray | None = None                  # 3.4
         self.mat_TFxIDF: sparse.csr_matrix | None = None    # 3.4
+        self.normes_docs: np.ndarray | None = None          # 4 : ||d|| de chaque document
 
         self._construire()
 
@@ -36,6 +38,7 @@ class SearchEngine:
         self._construire_mat_TF(mots_par_doc)
         self._completer_vocab()
         self._construire_mat_TFxIDF()
+        self._calculer_normes()
 
     # ----------------------------------------------------------------------
     # 3.1 — Vocabulaire
@@ -110,3 +113,61 @@ class SearchEngine:
         # Multiplier chaque colonne j par idf[j] revient à multiplier à droite
         # par la matrice diagonale diag(idf) : le résultat reste creux
         self.mat_TFxIDF = (self.mat_TF @ sparse.diags(self.idf)).tocsr()
+
+    # ======================================================================
+    # Sections 4 et 5 — Recherche par similarité cosinus
+    # ======================================================================
+    def _calculer_normes(self) -> None:
+        """Norme de chaque vecteur document, calculée une fois pour toutes."""
+        # ||d|| = racine de la somme des carrés des cases de la ligne
+        carres = self.mat_TFxIDF.multiply(self.mat_TFxIDF)
+        self.normes_docs = np.sqrt(np.asarray(carres.sum(axis=1)).ravel())
+
+    def vectoriser(self, mots_clefs: str) -> np.ndarray:
+        """Transforme la requête en vecteur sur le vocabulaire (pondération TF-IDF)."""
+        vecteur = np.zeros(len(self.vocab))
+        # La requête est nettoyée EXACTEMENT comme les documents
+        for mot in nettoyer_texte(mots_clefs).split():
+            if mot in self.vocab:                 # un mot inconnu du corpus est ignoré
+                vecteur[self.vocab[mot]["id"]] += 1      # TF du mot dans la requête
+        return vecteur * self.idf                        # même pondération que les documents
+
+    def search(self, mots_clefs: str, n: int = 5) -> pd.DataFrame:
+        """Renvoie les n documents les plus proches de la requête (cosinus)."""
+        if n < 1:
+            raise ValueError("Le nombre de documents à retourner doit être au moins 1.")
+
+        colonnes = ["id", "score", "type", "titre", "auteur", "date", "url"]
+        q = self.vectoriser(mots_clefs)
+        norme_q = np.linalg.norm(q)
+        if norme_q == 0:
+            # Aucun mot de la requête n'est dans le vocabulaire : rien à comparer
+            # (et on évite une division par zéro)
+            return pd.DataFrame(columns=colonnes)
+
+        # Produit scalaire q . d avec TOUS les documents d'un coup :
+        # matrice (documents x mots) @ vecteur (mots) = vecteur (documents)
+        produits = self.mat_TFxIDF @ q
+        # cos(q, d) = (q . d) / (||q|| x ||d||) ; un document de norme nulle
+        # (cas extrême) reçoit le score 0 au lieu d'une division par zéro
+        denominateurs = norme_q * self.normes_docs
+        scores = np.divide(produits, denominateurs,
+                           out=np.zeros_like(produits), where=denominateurs > 0)
+
+        # Tri par score décroissant ; on écarte les documents sans aucun mot commun
+        meilleurs = [i for i in np.argsort(-scores) if scores[i] > 0][:n]
+
+        resultats = []
+        for i in meilleurs:
+            id_doc = self.ids_documents[i]          # ligne i -> identifiant du document
+            doc = self.corpus.documents[id_doc]
+            resultats.append({
+                "id": id_doc,
+                "score": round(float(scores[i]), 3),
+                "type": doc.getType(),
+                "titre": doc.titre,
+                "auteur": doc.auteur,
+                "date": doc.date.strftime("%d/%m/%Y"),
+                "url": doc.url,
+            })
+        return pd.DataFrame(resultats, columns=colonnes)

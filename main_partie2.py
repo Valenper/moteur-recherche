@@ -6,6 +6,7 @@ main.py en Partie 1) : pas de nouvel appel aux API.
 - Section 1 : expressions régulières (search, concorde).
 - Section 2 : nettoyage du texte et statistiques (vocabulaire, TF, DF).
 - Section 3 : matrices Documents x Termes (TF et TF-IDF) dans SearchEngine.
+- Sections 4 et 5 : moteur de recherche (similarité cosinus) dans SearchEngine.
 """
 
 from pathlib import Path
@@ -20,6 +21,14 @@ CHEMIN_SAUVEGARDE = Path("data") / "corpus_sauvegarde.csv"
 # Affichage des tableaux pandas : textes en entier, sur une seule ligne
 pd.set_option("display.max_colwidth", None)
 pd.set_option("display.width", 200)
+
+
+def afficher_resultats(resultats: pd.DataFrame) -> None:
+    """Affiche le résultat d'une recherche, ou un message s'il est vide."""
+    if resultats.empty:
+        print("Aucun document ne contient ces mots.")
+    else:
+        print(resultats[["id", "score", "type", "titre"]].to_string(index=False))
 
 
 if __name__ == "__main__":
@@ -107,3 +116,15 @@ if __name__ == "__main__":
         meilleurs = ligne.argsort()[::-1][:5]         # indices des 5 plus grands
         mots = ", ".join(f"{mots_du_vocab[j]} ({ligne[j]:.1f})" for j in meilleurs)
         print(f"Document 1, top 5 {nom_matrice:<6} : {mots}")
+
+    # --- 4 / 5 : moteur de recherche --------------------------------------------
+    for requete in ["messi argentina", "penalty shootout", "predicting match outcomes"]:
+        print(f"\n--- moteur.search('{requete}', 5) ---")
+        afficher_resultats(moteur.search(requete, 5))
+
+    # Requêtes saisies par l'utilisateur, jusqu'à une ligne vide
+    while True:
+        requete = input("\nMots-clés (Entrée pour quitter) : ").strip()
+        if not requete:
+            break
+        afficher_resultats(moteur.search(requete, 5))
