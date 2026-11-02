@@ -3,11 +3,15 @@ Documents x Termes (projet Partie 2, sections 3 à 5).
 
 Tout est construit « à la main » : pas de scikit-learn ni de nltk.
 scipy est utilisé uniquement pour stocker la matrice creuse (csr_matrix).
+Projet Partie 3 (1.3) : barres de progression tqdm pendant la construction.
 """
 
 import numpy as np
 import pandas as pd
 from scipy import sparse
+# tqdm.auto choisit tout seul l'affichage : barre graphique dans un notebook,
+# barre de texte dans un terminal
+from tqdm.auto import tqdm
 
 from Corpus import nettoyer_texte
 
@@ -15,9 +19,13 @@ from Corpus import nettoyer_texte
 class SearchEngine:
     """Moteur de recherche : vocabulaire, matrices TF et TF-IDF d'un corpus."""
 
-    def __init__(self, corpus) -> None:
-        """Reçoit un Corpus et construit aussitôt les matrices (section 5)."""
+    def __init__(self, corpus, progression: bool = True) -> None:
+        """Reçoit un Corpus et construit aussitôt les matrices (section 5).
+
+        progression=False masque les barres tqdm (utile pour les tests).
+        """
         self.corpus = corpus
+        self.progression = progression
         # Ligne i de la matrice <-> document d'identifiant ids_documents[i]
         self.ids_documents: list[int] = list(corpus.documents.keys())
 
@@ -32,8 +40,11 @@ class SearchEngine:
     def _construire(self) -> None:
         """Enchaîne les étapes de la section 3, dans l'ordre."""
         # Chaque document est nettoyé et découpé UNE seule fois
+        # tqdm(...) entoure l'itérable : la boucle est identique, mais une
+        # barre affiche l'avancement (nombre de documents traités, vitesse)
         mots_par_doc = [nettoyer_texte(self.corpus.documents[i].texte).split()
-                        for i in self.ids_documents]
+                        for i in tqdm(self.ids_documents, desc="Nettoyage des textes",
+                                      disable=not self.progression)]
         self._construire_vocab(mots_par_doc)
         self._construire_mat_TF(mots_par_doc)
         self._completer_vocab()
@@ -63,7 +74,8 @@ class SearchEngine:
         # (numéro de ligne, numéro de colonne, valeur)
         lignes, colonnes, valeurs = [], [], []
 
-        for i, mots in enumerate(mots_par_doc):
+        for i, mots in enumerate(tqdm(mots_par_doc, desc="Matrice TF",
+                                      disable=not self.progression)):
             compte: dict[str, int] = {}               # TF de chaque mot du document i
             for mot in mots:
                 compte[mot] = compte.get(mot, 0) + 1
