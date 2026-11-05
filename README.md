@@ -23,10 +23,24 @@ Sous macOS / Linux : `python3.13 -m venv .venv` puis `source .venv/bin/activate`
 ```
 python main.py            # Partie 1 : données, classes, sauvegarde du corpus
 python main_partie2.py    # Partie 2 : regex, statistiques, moteur de recherche
+jupyter notebook          # Partie 3 : puis ouvrir interface.ipynb
 ```
 
-Les deux scripts fonctionnent sans connexion à Internet : ils utilisent les données
-déjà présentes dans `data/`.
+Tout fonctionne sans connexion à Internet : les scripts et le notebook utilisent les
+données déjà présentes dans `data/`.
+
+### Interface graphique (Partie 3)
+
+1. Lancer `jupyter notebook` depuis le dossier du projet (environnement virtuel activé) :
+   le navigateur s'ouvre sur la liste des fichiers.
+2. Ouvrir `interface.ipynb`, puis menu **Run → Run All Cells**.
+3. En bas du notebook : saisir des mots-clés, choisir le nombre d'articles, cliquer sur
+   **Rechercher**. Les liens « ouvrir » mènent au post Reddit ou à l'article Arxiv d'origine.
+
+**Remarque** : dans l'éditeur de notebooks de VS Code, le contenu de la zone de résultats
+(widget `Output`) s'affiche en double. Ce défaut vient de l'affichage des widgets par
+VS Code, pas du programme : dans Jupyter (navigateur), chaque résultat ne s'affiche
+qu'une fois. Il est donc conseillé d'utiliser `jupyter notebook`.
 
 ## Organisation du code
 
@@ -35,9 +49,10 @@ déjà présentes dans `data/`.
 | `Document.py` | classe mère `Document`, classes filles `RedditDocument` et `ArxivDocument`, fabrique `DocumentFactory` |
 | `Author.py` | classe `Author` |
 | `Corpus.py` | classe `Corpus` (Singleton), `nettoyer_texte`, recherche par expressions régulières, concordancier, statistiques |
-| `SearchEngine.py` | vocabulaire, matrices TF et TF-IDF (`scipy.sparse`), recherche par similarité cosinus |
+| `SearchEngine.py` | vocabulaire, matrices TF et TF-IDF (`scipy.sparse`), recherche par similarité cosinus, barres de progression `tqdm` |
 | `main.py` | acquisition des données (API Reddit et Arxiv) et démonstration de la Partie 1 |
 | `main_partie2.py` | démonstration de la Partie 2 |
+| `interface.ipynb` | interface graphique (ipywidgets) de la Partie 3 ; ne contient que l'interface, les classes sont importées des modules |
 | `data/corpus.csv` | données brutes issues des API (200 documents) |
 | `data/corpus_sauvegarde.csv` | corpus nettoyé, sauvegardé par `Corpus.save` (172 documents) |
 
