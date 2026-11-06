@@ -5,6 +5,7 @@ Tout est construit « à la main » : pas de scikit-learn ni de nltk.
 scipy est utilisé uniquement pour stocker la matrice creuse (csr_matrix).
 Projet Partie 3 (1.3) : barres de progression tqdm pendant la construction.
 Bonus 1 : filtres de recherche (source, auteur, période).
+Bonus 6 : seconde mesure de pertinence, Okapi BM25.
 """
 
 from datetime import date
@@ -22,13 +23,17 @@ from Corpus import nettoyer_texte
 class SearchEngine:
     """Moteur de recherche : vocabulaire, matrices TF et TF-IDF d'un corpus."""
 
-    def __init__(self, corpus, progression: bool = True) -> None:
+    def __init__(self, corpus, progression: bool = True,
+                 k1: float = 1.2, b: float = 0.75) -> None:
         """Reçoit un Corpus et construit aussitôt les matrices (section 5).
 
         progression=False masque les barres tqdm (utile pour les tests).
+        k1 et b : paramètres de la mesure Okapi BM25 (bonus 6), valeurs usuelles.
         """
         self.corpus = corpus
         self.progression = progression
+        self.k1 = k1          # BM25 : saturation de la fréquence d'un mot
+        self.b = b            # BM25 : poids de la normalisation par la longueur
         # Ligne i de la matrice <-> document d'identifiant ids_documents[i]
         self.ids_documents: list[int] = list(corpus.documents.keys())
 
@@ -37,6 +42,8 @@ class SearchEngine:
         self.idf: np.ndarray | None = None                  # 3.4
         self.mat_TFxIDF: sparse.csr_matrix | None = None    # 3.4
         self.normes_docs: np.ndarray | None = None          # 4 : ||d|| de chaque document
+        self.idf_bm25: np.ndarray | None = None             # bonus 6
+        self.longueurs_docs: np.ndarray | None = None       # bonus 6 : |D| en mots
 
         self._construire()
 
@@ -53,6 +60,7 @@ class SearchEngine:
         self._completer_vocab()
         self._construire_mat_TFxIDF()
         self._calculer_normes()
+        self._preparer_bm25()
 
     # ----------------------------------------------------------------------
     # 3.1 — Vocabulaire
@@ -148,6 +156,59 @@ class SearchEngine:
         return vecteur * self.idf                        # même pondération que les documents
 
     # ======================================================================
+    # Bonus 6 — Okapi BM25
+    # ======================================================================
+    MESURES = ("tfidf", "bm25")        # mesures de pertinence disponibles
+
+    def _preparer_bm25(self) -> None:
+        """Calcule une fois pour toutes ce qui ne dépend pas de la requête."""
+        n_documents = self.mat_TF.shape[0]
+        # Longueur |D| de chaque document = somme de sa ligne dans mat_TF
+        self.longueurs_docs = np.asarray(self.mat_TF.sum(axis=1)).ravel()
+        self.longueur_moyenne = self.longueurs_docs.mean()          # avgdl
+
+        df = np.zeros(len(self.vocab))
+        for infos in self.vocab.values():
+            df[infos["id"]] = infos["nb_documents"]
+        # IDF de BM25 : log(1 + (N - df + 0,5) / (df + 0,5)). Le « 1 + » évite
+        # un IDF négatif pour un mot présent dans plus de la moitié des documents
+        self.idf_bm25 = np.log(1 + (n_documents - df + 0.5) / (df + 0.5))
+
+    def _scores_cosinus(self, mots_clefs: str) -> np.ndarray:
+        """Similarité cosinus (TF-IDF) entre la requête et chaque document."""
+        q = self.vectoriser(mots_clefs)
+        norme_q = np.linalg.norm(q)
+        if norme_q == 0:            # aucun mot connu : tous les scores sont nuls
+            return np.zeros(len(self.ids_documents))
+        # Produit scalaire q . d avec TOUS les documents d'un coup :
+        # matrice (documents x mots) @ vecteur (mots) = vecteur (documents)
+        produits = self.mat_TFxIDF @ q
+        # cos(q, d) = (q . d) / (||q|| x ||d||) ; un document de norme nulle
+        # (cas extrême) reçoit le score 0 au lieu d'une division par zéro
+        denominateurs = norme_q * self.normes_docs
+        return np.divide(produits, denominateurs,
+                         out=np.zeros_like(produits), where=denominateurs > 0)
+
+    def _scores_bm25(self, mots_clefs: str) -> np.ndarray:
+        """Score Okapi BM25 de chaque document pour la requête.
+
+        score(D, Q) = somme sur les mots q de Q de
+            idf(q) x f(q, D) x (k1 + 1) / (f(q, D) + k1 x (1 - b + b x |D| / avgdl))
+        """
+        scores = np.zeros(len(self.ids_documents))
+        # Dénominateur propre à chaque document (ne dépend pas du mot)
+        normalisation = self.k1 * (1 - self.b + self.b * self.longueurs_docs
+                                   / self.longueur_moyenne)
+        # set() : un mot répété dans la requête ne compte qu'une fois
+        for mot in set(nettoyer_texte(mots_clefs).split()):
+            if mot not in self.vocab:
+                continue
+            j = self.vocab[mot]["id"]
+            f = self.mat_TF[:, j].toarray().ravel()     # TF du mot dans chaque document
+            scores += self.idf_bm25[j] * f * (self.k1 + 1) / (f + normalisation)
+        return scores
+
+    # ======================================================================
     # Bonus 1 — Filtres de recherche
     # ======================================================================
     SOURCES = ("reddit", "arxiv")      # valeurs acceptées pour le filtre source
@@ -168,8 +229,10 @@ class SearchEngine:
 
     def search(self, mots_clefs: str, n: int = 5, source: str | None = None,
                auteur: str | None = None, date_debut: date | None = None,
-               date_fin: date | None = None) -> pd.DataFrame:
-        """Renvoie les n documents les plus proches de la requête (cosinus).
+               date_fin: date | None = None, mesure: str = "tfidf") -> pd.DataFrame:
+        """Renvoie les n documents les plus pertinents pour la requête.
+
+        mesure : "tfidf" (similarité cosinus, Partie 2) ou "bm25" (bonus 6).
 
         Bonus 1 : les filtres facultatifs ne gardent que les documents d'une
         source ("reddit" ou "arxiv"), d'un auteur, ou publiés entre date_debut
@@ -182,23 +245,17 @@ class SearchEngine:
             raise ValueError(f"Source inconnue : {source} (attendu : {self.SOURCES})")
         if date_debut is not None and date_fin is not None and date_debut > date_fin:
             raise ValueError("La date de début doit précéder la date de fin.")
+        if mesure not in self.MESURES:
+            raise ValueError(f"Mesure inconnue : {mesure} (attendu : {self.MESURES})")
 
         colonnes = ["id", "score", "type", "titre", "auteur", "date", "url"]
-        q = self.vectoriser(mots_clefs)
-        norme_q = np.linalg.norm(q)
-        if norme_q == 0:
-            # Aucun mot de la requête n'est dans le vocabulaire : rien à comparer
-            # (et on évite une division par zéro)
+        if mesure == "bm25":
+            scores = self._scores_bm25(mots_clefs)
+        else:
+            scores = self._scores_cosinus(mots_clefs)
+        if not scores.any():
+            # Aucun mot de la requête n'est dans le vocabulaire : aucun résultat
             return pd.DataFrame(columns=colonnes)
-
-        # Produit scalaire q . d avec TOUS les documents d'un coup :
-        # matrice (documents x mots) @ vecteur (mots) = vecteur (documents)
-        produits = self.mat_TFxIDF @ q
-        # cos(q, d) = (q . d) / (||q|| x ||d||) ; un document de norme nulle
-        # (cas extrême) reçoit le score 0 au lieu d'une division par zéro
-        denominateurs = norme_q * self.normes_docs
-        scores = np.divide(produits, denominateurs,
-                           out=np.zeros_like(produits), where=denominateurs > 0)
 
         # Bonus 1 : un document qui ne passe pas les filtres reçoit le score 0,
         # il est donc écarté du classement comme un document sans mot commun
