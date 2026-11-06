@@ -18,7 +18,7 @@ from scipy import sparse
 # barre de texte dans un terminal
 from tqdm.auto import tqdm
 
-from Corpus import nettoyer_texte
+from Corpus import MOTS_VIDES, nettoyer_texte
 
 
 class SearchEngine:
@@ -319,8 +319,11 @@ class SearchEngine:
         tf = np.asarray(self.mat_TF[lignes].sum(axis=0)).ravel()
         return tf, len(lignes)
 
-    def comparer_sources(self, n: int = 15) -> dict[str, pd.DataFrame]:
+    def comparer_sources(self, n: int = 15,
+                         exclure_mots_vides: bool = True) -> dict[str, pd.DataFrame]:
         """Mots communs à Reddit et Arxiv, et mots spécifiques à chacun.
+
+        exclure_mots_vides=True écarte les mots de MOTS_VIDES (the, is, and...).
 
         Importance d'un mot dans un sous-corpus = sa fréquence relative dans
         le « gros document » (en pour mille, pour compenser la différence de
@@ -342,6 +345,9 @@ class SearchEngine:
             "importance Reddit": importance_reddit.round(2),
             "importance Arxiv": importance_arxiv.round(2),
         })
+        if exclure_mots_vides:
+            tableau = tableau[~tableau["mot"].isin(MOTS_VIDES)]
+
         present_reddit = tableau["TF Reddit"] > 0
         present_arxiv = tableau["TF Arxiv"] > 0
 

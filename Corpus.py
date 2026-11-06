@@ -55,6 +55,28 @@ def nettoyer_texte(chaine: str) -> str:
 
 
 # ==========================================================================
+# Bonus 4 — Mots vides (stopwords), liste écrite à la main (nltk interdit)
+# ==========================================================================
+# Mots grammaticaux anglais très fréquents, qui ne renseignent pas sur le sujet
+# d'un texte. Ils sont écartés pour comparer les sous-corpus et pour les
+# visualisations ; le moteur de recherche, lui, les garde (l'IDF les affaiblit).
+# Les fragments d'une lettre (s, t, d...) viennent des apostrophes coupées par
+# nettoyer_texte : « messi's » -> « messi s », « don't » -> « don t ».
+MOTS_VIDES = frozenset("""
+a an the and or but if then than so as of at by for from in into on onto to with
+without about over under after before between through during up down out off
+again further once here there when where why how what which who whom whose
+this that these those all any both each few more most other some such no nor not
+only own same too very just also can will would could should may might must shall
+is are was were be been being am do does did doing has have had having
+i me my mine myself we us our ours ourselves you your yours yourself yourselves
+he him his himself she her hers herself it its itself they them their theirs
+themselves one ones s t d ll m re ve don didn doesn isn wasn aren weren won hasn
+haven hadn couldn shouldn wouldn
+""".split())
+
+
+# ==========================================================================
 # Conversion d'une ligne de tableau (CSV) en document
 # ==========================================================================
 def document_depuis_ligne(ligne) -> Document:
