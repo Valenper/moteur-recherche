@@ -372,7 +372,7 @@ class SearchEngine:
         })
         return {
             "resume": resume,
-            "communs": communs[["mot", "TF Reddit", "TF Arxiv",
+            "communs": communs[["mot", "importance Reddit", "importance Arxiv",
                                 "importance minimale"]].head(n),
             "reddit": specifiques_reddit[["mot", "TF Reddit", "importance Reddit"]].head(n),
             "arxiv": specifiques_arxiv[["mot", "TF Arxiv", "importance Arxiv"]].head(n),

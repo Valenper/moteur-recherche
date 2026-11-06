@@ -8,6 +8,7 @@ numpy
 scipy
 
 # Interface et progression (Partie 3)
+matplotlib
 tqdm
 ipywidgets
 notebook
