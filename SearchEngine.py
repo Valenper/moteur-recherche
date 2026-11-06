@@ -4,7 +4,10 @@ Documents x Termes (projet Partie 2, sections 3 à 5).
 Tout est construit « à la main » : pas de scikit-learn ni de nltk.
 scipy est utilisé uniquement pour stocker la matrice creuse (csr_matrix).
 Projet Partie 3 (1.3) : barres de progression tqdm pendant la construction.
+Bonus 1 : filtres de recherche (source, auteur, période).
 """
+
+from datetime import date
 
 import numpy as np
 import pandas as pd
@@ -144,10 +147,41 @@ class SearchEngine:
                 vecteur[self.vocab[mot]["id"]] += 1      # TF du mot dans la requête
         return vecteur * self.idf                        # même pondération que les documents
 
-    def search(self, mots_clefs: str, n: int = 5) -> pd.DataFrame:
-        """Renvoie les n documents les plus proches de la requête (cosinus)."""
+    # ======================================================================
+    # Bonus 1 — Filtres de recherche
+    # ======================================================================
+    SOURCES = ("reddit", "arxiv")      # valeurs acceptées pour le filtre source
+
+    def _respecte_filtres(self, doc, source: str | None, auteur: str | None,
+                          date_debut: date | None, date_fin: date | None) -> bool:
+        """True si le document passe tous les filtres (None = filtre désactivé)."""
+        if source is not None and doc.getType() != source:     # polymorphisme
+            return False
+        if auteur is not None and doc.auteur != auteur:
+            return False
+        # doc.date est un datetime (date + heure) : .date() ne garde que le jour
+        if date_debut is not None and doc.date.date() < date_debut:
+            return False
+        if date_fin is not None and doc.date.date() > date_fin:
+            return False
+        return True
+
+    def search(self, mots_clefs: str, n: int = 5, source: str | None = None,
+               auteur: str | None = None, date_debut: date | None = None,
+               date_fin: date | None = None) -> pd.DataFrame:
+        """Renvoie les n documents les plus proches de la requête (cosinus).
+
+        Bonus 1 : les filtres facultatifs ne gardent que les documents d'une
+        source ("reddit" ou "arxiv"), d'un auteur, ou publiés entre date_debut
+        et date_fin (bornes incluses). Sans filtre, le comportement est
+        identique à celui de la Partie 2.
+        """
         if n < 1:
             raise ValueError("Le nombre de documents à retourner doit être au moins 1.")
+        if source is not None and source not in self.SOURCES:
+            raise ValueError(f"Source inconnue : {source} (attendu : {self.SOURCES})")
+        if date_debut is not None and date_fin is not None and date_debut > date_fin:
+            raise ValueError("La date de début doit précéder la date de fin.")
 
         colonnes = ["id", "score", "type", "titre", "auteur", "date", "url"]
         q = self.vectoriser(mots_clefs)
@@ -166,7 +200,14 @@ class SearchEngine:
         scores = np.divide(produits, denominateurs,
                            out=np.zeros_like(produits), where=denominateurs > 0)
 
-        # Tri par score décroissant ; on écarte les documents sans aucun mot commun
+        # Bonus 1 : un document qui ne passe pas les filtres reçoit le score 0,
+        # il est donc écarté du classement comme un document sans mot commun
+        for i, id_doc in enumerate(self.ids_documents):
+            if not self._respecte_filtres(self.corpus.documents[id_doc], source,
+                                          auteur, date_debut, date_fin):
+                scores[i] = 0.0
+
+        # Tri par score décroissant ; on écarte les documents de score nul
         meilleurs = [i for i in np.argsort(-scores) if scores[i] > 0][:n]
 
         resultats = []
