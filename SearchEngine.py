@@ -6,6 +6,7 @@ scipy est utilisé uniquement pour stocker la matrice creuse (csr_matrix).
 Projet Partie 3 (1.3) : barres de progression tqdm pendant la construction.
 Bonus 1 : filtres de recherche (source, auteur, période).
 Bonus 6 : seconde mesure de pertinence, Okapi BM25.
+Bonus 4 : comparaison des sous-corpus Reddit et Arxiv.
 """
 
 from datetime import date
@@ -303,3 +304,70 @@ class SearchEngine:
             lignes.append(ligne)
         return pd.DataFrame(lignes, columns=["rang", "id TF-IDF", "titre TF-IDF",
                                              "id BM25", "titre BM25"])
+
+    # ======================================================================
+    # Bonus 4 — Comparaison des sous-corpus Reddit et Arxiv
+    # ======================================================================
+    def _profil_source(self, source: str) -> tuple[np.ndarray, int]:
+        """TF de chaque mot dans le sous-corpus, vu comme un seul gros document.
+
+        Renvoie aussi le nombre de documents du sous-corpus.
+        """
+        lignes = [i for i, id_doc in enumerate(self.ids_documents)
+                  if self.corpus.documents[id_doc].getType() == source]
+        # Somme des lignes de mat_TF de ces documents = TF du « gros document »
+        tf = np.asarray(self.mat_TF[lignes].sum(axis=0)).ravel()
+        return tf, len(lignes)
+
+    def comparer_sources(self, n: int = 15) -> dict[str, pd.DataFrame]:
+        """Mots communs à Reddit et Arxiv, et mots spécifiques à chacun.
+
+        Importance d'un mot dans un sous-corpus = sa fréquence relative dans
+        le « gros document » (en pour mille, pour compenser la différence de
+        taille : les résumés Arxiv sont bien plus longs que les posts Reddit),
+        multipliée par son IDF dans tout le corpus (pour écarter les mots
+        banals comme « the », présents partout).
+        """
+        tf_reddit, nb_reddit = self._profil_source("reddit")
+        tf_arxiv, nb_arxiv = self._profil_source("arxiv")
+
+        importance_reddit = 1000 * tf_reddit / tf_reddit.sum() * self.idf
+        importance_arxiv = 1000 * tf_arxiv / tf_arxiv.sum() * self.idf
+
+        mots = sorted(self.vocab, key=lambda mot: self.vocab[mot]["id"])   # colonne j -> mot
+        tableau = pd.DataFrame({
+            "mot": mots,
+            "TF Reddit": tf_reddit.astype(int),
+            "TF Arxiv": tf_arxiv.astype(int),
+            "importance Reddit": importance_reddit.round(2),
+            "importance Arxiv": importance_arxiv.round(2),
+        })
+        present_reddit = tableau["TF Reddit"] > 0
+        present_arxiv = tableau["TF Arxiv"] > 0
+
+        # Mots communs : classés par leur importance la plus FAIBLE des deux
+        # côtés, pour ne garder que ceux qui comptent dans les deux sous-corpus
+        communs = tableau[present_reddit & present_arxiv].copy()
+        communs["importance minimale"] = communs[["importance Reddit",
+                                                  "importance Arxiv"]].min(axis=1)
+        communs = communs.sort_values("importance minimale", ascending=False)
+
+        specifiques_reddit = (tableau[present_reddit & ~present_arxiv]   # ~ : « non »
+                              .sort_values("importance Reddit", ascending=False))
+        specifiques_arxiv = (tableau[present_arxiv & ~present_reddit]
+                             .sort_values("importance Arxiv", ascending=False))
+
+        resume = pd.DataFrame({
+            "": ["documents", "mots différents", "mots en commun", "mots spécifiques"],
+            "Reddit": [nb_reddit, int(present_reddit.sum()), len(communs),
+                       len(specifiques_reddit)],
+            "Arxiv": [nb_arxiv, int(present_arxiv.sum()), len(communs),
+                      len(specifiques_arxiv)],
+        })
+        return {
+            "resume": resume,
+            "communs": communs[["mot", "TF Reddit", "TF Arxiv",
+                                "importance minimale"]].head(n),
+            "reddit": specifiques_reddit[["mot", "TF Reddit", "importance Reddit"]].head(n),
+            "arxiv": specifiques_arxiv[["mot", "TF Arxiv", "importance Arxiv"]].head(n),
+        }
