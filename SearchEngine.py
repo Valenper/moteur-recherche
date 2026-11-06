@@ -281,3 +281,25 @@ class SearchEngine:
                 "url": doc.url,
             })
         return pd.DataFrame(resultats, columns=colonnes)
+
+    def comparer_mesures(self, mots_clefs: str, n: int = 5) -> pd.DataFrame:
+        """Bonus 6 — Les n premiers documents selon TF-IDF et selon BM25, côte à côte.
+
+        Une ligne par rang ; case vide si une mesure trouve moins de n documents.
+        """
+        resultats_tfidf = self.search(mots_clefs, n, mesure="tfidf")
+        resultats_bm25 = self.search(mots_clefs, n, mesure="bm25")
+
+        lignes = []
+        for rang in range(max(len(resultats_tfidf), len(resultats_bm25))):
+            ligne = {"rang": rang + 1}
+            for nom, resultats in [("TF-IDF", resultats_tfidf), ("BM25", resultats_bm25)]:
+                if rang < len(resultats):
+                    ligne[f"id {nom}"] = resultats.iloc[rang]["id"]
+                    ligne[f"titre {nom}"] = resultats.iloc[rang]["titre"]
+                else:
+                    ligne[f"id {nom}"] = None
+                    ligne[f"titre {nom}"] = ""
+            lignes.append(ligne)
+        return pd.DataFrame(lignes, columns=["rang", "id TF-IDF", "titre TF-IDF",
+                                             "id BM25", "titre BM25"])
