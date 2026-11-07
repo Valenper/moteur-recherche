@@ -8,6 +8,7 @@ Bonus 1 : filtres de recherche (source, auteur, période).
 Bonus 6 : seconde mesure de pertinence, Okapi BM25.
 Bonus 4 : comparaison des sous-corpus Reddit et Arxiv.
 Bonus racinisation : option qui remplace chaque mot par sa racine.
+Bonus « Vouliez-vous dire… ? » : correction des mots inconnus de la requête.
 """
 
 from datetime import date
@@ -20,6 +21,7 @@ from scipy import sparse
 from tqdm.auto import tqdm
 
 from Corpus import MOTS_VIDES, nettoyer_texte
+from Orthographe import mot_le_plus_proche
 from Racinisation import raciniser
 
 
@@ -394,3 +396,27 @@ class SearchEngine:
             "reddit": specifiques_reddit[["mot", "TF Reddit", "importance Reddit"]].head(n),
             "arxiv": specifiques_arxiv[["mot", "TF Arxiv", "importance Arxiv"]].head(n),
         }
+
+    # ======================================================================
+    # Bonus « Vouliez-vous dire… ? »
+    # ======================================================================
+    def corriger_requete(self, mots_clefs: str) -> str | None:
+        """Propose une requête corrigée si des mots sont absents du vocabulaire.
+
+        Chaque mot inconnu est remplacé par le mot du vocabulaire le plus
+        proche (distance de Levenshtein <= 2). Renvoie None s'il n'y a rien à
+        corriger (tous les mots sont connus, ou aucun mot proche n'existe).
+        """
+        mots = nettoyer_texte(mots_clefs).split()
+        corriges = []
+        for mot in mots:
+            # Avec la racinisation, le vocabulaire contient des racines :
+            # on teste donc la racine du mot, mais on propose un vrai mot
+            connu = (self._decouper(mot) or [mot])[0] in self.vocab
+            if connu:
+                corriges.append(mot)
+            else:
+                suggestion = mot_le_plus_proche(mot, self.vocab)
+                corriges.append(suggestion if suggestion is not None else mot)
+        proposition = " ".join(corriges)
+        return proposition if proposition != " ".join(mots) else None
