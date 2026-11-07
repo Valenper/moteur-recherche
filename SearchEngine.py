@@ -7,6 +7,7 @@ Projet Partie 3 (1.3) : barres de progression tqdm pendant la construction.
 Bonus 1 : filtres de recherche (source, auteur, période).
 Bonus 6 : seconde mesure de pertinence, Okapi BM25.
 Bonus 4 : comparaison des sous-corpus Reddit et Arxiv.
+Bonus racinisation : option qui remplace chaque mot par sa racine.
 """
 
 from datetime import date
@@ -19,20 +20,25 @@ from scipy import sparse
 from tqdm.auto import tqdm
 
 from Corpus import MOTS_VIDES, nettoyer_texte
+from Racinisation import raciniser
 
 
 class SearchEngine:
     """Moteur de recherche : vocabulaire, matrices TF et TF-IDF d'un corpus."""
 
     def __init__(self, corpus, progression: bool = True,
-                 k1: float = 1.2, b: float = 0.75) -> None:
+                 k1: float = 1.2, b: float = 0.75, racinisation: bool = False) -> None:
         """Reçoit un Corpus et construit aussitôt les matrices (section 5).
 
         progression=False masque les barres tqdm (utile pour les tests).
         k1 et b : paramètres de la mesure Okapi BM25 (bonus 6), valeurs usuelles.
+        racinisation=True : chaque mot est remplacé par sa racine (bonus), dans
+        les documents comme dans les requêtes ; le vocabulaire est alors celui
+        des racines (predicting, prediction -> predict).
         """
         self.corpus = corpus
         self.progression = progression
+        self.racinisation = racinisation
         self.k1 = k1          # BM25 : saturation de la fréquence d'un mot
         self.b = b            # BM25 : poids de la normalisation par la longueur
         # Ligne i de la matrice <-> document d'identifiant ids_documents[i]
@@ -48,12 +54,23 @@ class SearchEngine:
 
         self._construire()
 
+    def _decouper(self, texte: str) -> list[str]:
+        """Découpe un texte en mots (racinisés si l'option est active).
+
+        Utilisée pour les documents ET pour les requêtes : les deux sont donc
+        toujours traités exactement de la même façon.
+        """
+        mots = nettoyer_texte(texte).split()
+        if self.racinisation:
+            mots = [raciniser(mot) for mot in mots]
+        return mots
+
     def _construire(self) -> None:
         """Enchaîne les étapes de la section 3, dans l'ordre."""
         # Chaque document est nettoyé et découpé UNE seule fois
         # tqdm(...) entoure l'itérable : la boucle est identique, mais une
         # barre affiche l'avancement (nombre de documents traités, vitesse)
-        mots_par_doc = [nettoyer_texte(self.corpus.documents[i].texte).split()
+        mots_par_doc = [self._decouper(self.corpus.documents[i].texte)
                         for i in tqdm(self.ids_documents, desc="Nettoyage des textes",
                                       disable=not self.progression)]
         self._construire_vocab(mots_par_doc)
@@ -151,7 +168,7 @@ class SearchEngine:
         """Transforme la requête en vecteur sur le vocabulaire (pondération TF-IDF)."""
         vecteur = np.zeros(len(self.vocab))
         # La requête est nettoyée EXACTEMENT comme les documents
-        for mot in nettoyer_texte(mots_clefs).split():
+        for mot in self._decouper(mots_clefs):
             if mot in self.vocab:                 # un mot inconnu du corpus est ignoré
                 vecteur[self.vocab[mot]["id"]] += 1      # TF du mot dans la requête
         return vecteur * self.idf                        # même pondération que les documents
@@ -201,7 +218,7 @@ class SearchEngine:
         normalisation = self.k1 * (1 - self.b + self.b * self.longueurs_docs
                                    / self.longueur_moyenne)
         # set() : un mot répété dans la requête ne compte qu'une fois
-        for mot in set(nettoyer_texte(mots_clefs).split()):
+        for mot in set(self._decouper(mots_clefs)):
             if mot not in self.vocab:
                 continue
             j = self.vocab[mot]["id"]
