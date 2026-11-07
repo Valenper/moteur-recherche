@@ -204,13 +204,21 @@ class Corpus:
         chemin.parent.mkdir(exist_ok=True)
         pd.DataFrame(lignes).to_csv(chemin, sep="\t", index=False, encoding="utf-8")
 
-    def load(self, chemin: Path) -> None:
-        """Remplace le contenu du corpus par celui du fichier sauvegardé."""
-        # On repart d'un corpus vide pour ne pas mélanger anciens et nouveaux documents
+    def vider(self) -> None:
+        """Remet le corpus à zéro : aucun document, aucun auteur.
+
+        Avec le Singleton, on ne peut pas créer un nouveau corpus vide : c'est
+        donc la façon de repartir de zéro (utilisée par load et par les tests).
+        """
         self.documents = {}
         self.id_document = 0
         self.authors = {}
         self.__texte_complet = None
+
+    def load(self, chemin: Path) -> None:
+        """Remplace le contenu du corpus par celui du fichier sauvegardé."""
+        # On repart d'un corpus vide pour ne pas mélanger anciens et nouveaux documents
+        self.vider()
 
         df = pd.read_csv(chemin, sep="\t", encoding="utf-8")
         for ligne in df.itertuples():
